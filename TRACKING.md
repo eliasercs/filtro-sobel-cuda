@@ -150,6 +150,11 @@
 4. ~~**A.3.x** CUDA Tile C++.~~ ✅ Completado
 5. ~~**A.4.x** cuTile Python.~~ ✅ Completado (etapa grayscale con `@ct.kernel`)
 6. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
+   - ✅ 10 reps + warmup + CUDA Events + CSV 14 columnas + promedio + std (heredado del merge con branch `patricio`, 2026-07-03)
+   - ❌ Falta extender el orquestador a CPU, Tile y cuTile Python
+   - ❌ Falta separar tiempo de kernel vs transferencia
+   - ❌ Falta columna de throughput (MP/s)
+   - ❌ Falta profiling Nsight Compute / Nsight Systems
 7. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
 8. **D.8** Redactar informe en PDF siguiendo la pauta 10.
 9. **D.2** Ampliar README con instrucciones para todas las versiones.
