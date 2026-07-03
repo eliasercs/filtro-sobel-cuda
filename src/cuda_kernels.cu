@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 
 #define CUDA_CHECK(call) do { \
     cudaError_t err = (call); \
@@ -13,7 +14,21 @@
     } \
 } while (0)
 
-#define BLOCK_SIZE 16
+// --- FUNCIÓN DE OPTIMIZACIÓN DINÁMICA (API DE OCCUPANCY) ---
+template<class T>
+void getOptimalBlockGrid2D(T kernel, int width, int height, dim3& grid, dim3& block) {
+    int minGridSize;
+    int blockSize; // Cantidad total de hilos recomendada por bloque
+    
+    // La API de CUDA analiza el kernel en tiempo de ejecución y devuelve el blockSize óptimo
+    CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, kernel, 0, 0));
+    
+    // Como procesamos imágenes 2D, calculamos un bloque cuadrado (ej. si recomienda 1024, saca 32x32)
+    int dim = static_cast<int>(std::sqrt(static_cast<float>(blockSize)));
+    block = dim3(dim, dim);
+    grid = dim3((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
+}
+// -----------------------------------------------------------
 
 __global__ void rgbToGrayKernel(
     const unsigned char* rgb,
@@ -209,11 +224,9 @@ unsigned char* cudaRgbToGray(
 
     CUDA_CHECK(cudaMemcpy(d_rgb, h_rgb, rgbBytes, cudaMemcpyHostToDevice));
 
-    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid(
-        (width + BLOCK_SIZE - 1) / BLOCK_SIZE,
-        (height + BLOCK_SIZE - 1) / BLOCK_SIZE
-    );
+    dim3 grid, block;
+    getOptimalBlockGrid2D(rgbToGrayKernel, width, height, grid, block);
+
     rgbToGrayKernel<<<grid, block>>>(d_rgb, d_gray, width, height, channels);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -248,11 +261,9 @@ unsigned char* cudaGaussianBlur(
     CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_kernel, h_kernel, kbytes, cudaMemcpyHostToDevice));
 
-    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid(
-        (width + BLOCK_SIZE - 1) / BLOCK_SIZE,
-        (height + BLOCK_SIZE - 1) / BLOCK_SIZE
-    );
+    dim3 grid, block;
+    getOptimalBlockGrid2D(gaussianBlurKernel, width, height, grid, block);
+
     gaussianBlurKernel<<<grid, block>>>(
         d_in, d_out, width, height, d_kernel, kernelSize
     );
@@ -283,11 +294,9 @@ unsigned char* cudaSobel(
 
     CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
 
-    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid(
-        (width + BLOCK_SIZE - 1) / BLOCK_SIZE,
-        (height + BLOCK_SIZE - 1) / BLOCK_SIZE
-    );
+    dim3 grid, block;
+    getOptimalBlockGrid2D(sobelKernel, width, height, grid, block);
+
     sobelKernel<<<grid, block>>>(d_in, d_out, width, height);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -332,11 +341,10 @@ unsigned char* cudaBilinearResize(
 
     CUDA_CHECK(cudaMemcpy(d_in, h_in, inBytes, cudaMemcpyHostToDevice));
 
-    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 grid(
-        (newWidth + BLOCK_SIZE - 1) / BLOCK_SIZE,
-        (newHeight + BLOCK_SIZE - 1) / BLOCK_SIZE
-    );
+    dim3 grid, block;
+    // Se calcula la ocupación en base al nuevo tamaño de salida
+    getOptimalBlockGrid2D(bilinearResizeKernel, newWidth, newHeight, grid, block);
+
     bilinearResizeKernel<<<grid, block>>>(
         d_in, d_out, width, height, newWidth, newHeight
     );
