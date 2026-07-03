@@ -13,10 +13,15 @@ echo === Compilando version CUDA clasica (sin Tile) ===
 nvcc -std=c++17 -arch=native -ccbin "%CCBIN%" src\image.cpp src\cuda_kernels.cu src\main_cuda.cpp -o build\cuda.exe
 if errorlevel 1 goto :error
 
+echo === Compilando version CUDA Tile C++ ===
+nvcc -std=c++20 -arch=native -enable-tile -ccbin "%CCBIN%" src\image.cpp src\tile_kernels.cu src\main_tile.cpp -o build\tile.exe
+if errorlevel 1 goto :error
+
 echo.
 echo Compilacion completa:
 echo   build\secuencial.exe
 echo   build\cuda.exe
+echo   build\tile.exe
 exit /b 0
 
 :error

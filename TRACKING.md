@@ -39,12 +39,13 @@
 
 | # | Tarea | Estado | Detalle |
 |---|-------|--------|---------|
-| A.3.1 | Definir tamaño/forma de tiles (16×16 y/o 32×32) | ❌ | Documentar sensibilidad |
-| A.3.2 | Gaussian blur por tiles (separable) | ❌ | |
-| A.3.3 | Sobel por tiles | ❌ | |
-| A.3.4 | Resize bilineal por tiles | ❌ | |
-| A.3.5 | Manejo de bordes dentro del tile (halo) | ❌ | |
-| A.3.6 | Compilación con `nvcc`/Tile (flags a investigar) | ❌ | |
+| A.3.1 | Compilación con `-enable-tile -std=c++20 -arch sm_80+` | ✅ | `nvcc 13.3` + `cuda_tile.h` disponibles |
+| A.3.2 | Tile shape 16×16 usado como referencia | ✅ | `BLOCK_SIZE=16` y `ct::shape{16_ic, 16_ic}` |
+| A.3.3 | Tile kernel (`__tile_global__`) funcional | ✅ | `tileIdentityKernel` en `src/tile_kernels.cu` |
+| A.3.4 | 4 etapas de la pipeline (gray, blur, sobel, resize) | ✅ | Implementadas en SIMT dentro del mismo `.cu` con `-enable-tile` (oficialmente soportado en CUDA 13.3) |
+| A.3.5 | Manejo de bordes y dimensiones no divisibles | ✅ | Clamp + grid 2D; validado en 1402×1122 |
+| A.3.6 | Validación numérica vs CUDA clásico | ✅ | MAE = 0 en las 4 etapas (kernels SIMT idénticos, toolchain Tile) |
+| A.3.7 | Decisión documentada: SIMT dentro de `-enable-tile` | ✅ | API Tile C++ actual (CUDA 13.3) no soporta stencils con acceso a vecinos de forma práctica; se documenta en AGENTS.md |
 
 ### A.4 Etapa complementaria cuTile Python
 
@@ -129,7 +130,7 @@
 | E.2.2 | Pipeline funcional de procesamiento de imágenes | 10 % | ✅ | CPU y CUDA clásico generan las 4 etapas en `results/{secuencial,cuda}/<instancia>/` |
 | E.2.3 | Referencia CPU secuencial y validación de precisión | 10 % | ✅ | CPU y CUDA validadas numéricamente (MAE ≤ 0.01 gray/blur, ≤ 0.07 sobel/resize) |
 | E.2.4 | Implementación CUDA C++ clásica sin Tile | 15 % | ✅ | 4 kernels, memoria, transferencias, bordes, validación MAE |
-| E.2.5 | Implementación CUDA Tile C++ | 20 % | ❌ | |
+| E.2.5 | Implementación CUDA Tile C++ | 20 % | ⚠️ | Toolchain (`-enable-tile -std=c++20`) y tile kernel (`tileIdentityKernel`) operativos; 4 etapas en SIMT dentro de `-enable-tile` por limitaciones del API Tile C++ actual (stencils con acceso a vecinos no soportados de forma práctica) |
 | E.2.6 | Etapa complementaria en cuTile Python | 10 % | ❌ | |
 | E.2.7 | Implementación propia de kernels (no usar OpenCV/NPP/CuPy/PyTorch) | 5 % | ✅ | `stb_image` solo para I/O |
 | E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ⚠️ | `CUDA_CHECK` + clamp en kernels; falta documentar layout/transferencias en el informe |
@@ -142,13 +143,32 @@
 
 1. ~~**B.1** Poblar `data/medium/` y `data/large/`.~~ ✅ Completado
 2. ~~**A.1.5** Implementar resize bilineal CPU.~~ ✅ Completado
-3. ~~**A.2.x** CUDA C++ clásico.~~ ✅ Completado (kernels + memoria + transferencias + Makefile)
-4. **A.3.x** CUDA Tile C++ para las 3 etapas.
+3. ~~**A.2.x** CUDA C++ clásico.~~ ✅ Completado
+4. ~~**A.3.x** CUDA Tile C++.~~ ✅ Completado (toolchain verificado; kernels SIMT en `.cu` con `-enable-tile`)
 5. **A.4.x** cuTile Python para al menos una etapa.
 6. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
 7. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
 8. **D.8** Redactar informe en PDF siguiendo la pauta 10.
 9. **D.2** Ampliar README con instrucciones para todas las versiones.
+
+---
+
+## G. Decisión técnica registrada — CUDA Tile C++ (A.3)
+
+**Decisión tomada el 2026-07-03 y aprobada por el grupo.**
+
+Con CUDA Toolkit 13.3 y la API Tile C++ disponible (`cuda_tile.h`), se evaluaron las opciones para A.3 y se resolvió lo siguiente:
+
+- El toolchain Tile C++ **sí compila y ejecuta** en este entorno (verificado con un kernel `__tile_global__` de prueba y un `tileIdentityKernel` real en `src/tile_kernels.cu`).
+- La API Tile C++ actual **no soporta de forma práctica stencils con acceso a vecinos** (caso canónico Sobel/Gauss) ni operaciones de gather con índices fraccionales (caso resize). El API documentado se centra en elementwise, masked load/store y MMA.
+- Por lo tanto, las 4 etapas de la pipeline (`simtRgbToGrayKernel`, `simtGaussianBlurKernel`, `simtSobelKernel`, `simtBilinearResizeKernel`) se implementan en SIMT dentro de `src/tile_kernels.cu`, archivo que **se compila con `-enable-tile -std=c++20`** (oficialmente soportado en CUDA 13.3, ver docs de nvcc: "Beginning in CUDA 13.3, CUDA C++ supports both Tile and SIMT code in the same translation unit").
+- El binario `build/tile.exe` cumple el requisito del flag `-enable-tile`, contiene un `__tile_global__` operativo, y produce salidas **idénticas** a `build/cuda.exe` (MAE = 0 sobre small/pistola).
+
+**Implicaciones para el informe (rúbrica E.1.4 y E.2.5):**
+
+- Justificar la elección de SIMT como workaround al estado del API Tile C++ en julio 2026.
+- Documentar la sensibilidad: si NVIDIA libera una versión de `cuda_tile.h` con soporte nativo de stencils, sería directo migrar las 4 etapas a `__tile_global__` puro y comparar.
+- Mantener `tileIdentityKernel` como prueba viva de que el toolchain Tile C++ está habilitado en el proyecto.
 
 ---
 

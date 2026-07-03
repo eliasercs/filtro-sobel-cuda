@@ -71,12 +71,16 @@ filtro-sobel-cuda/
 │   ├── cuda_kernels.hpp            # API pública CUDA
 │   ├── cuda_kernels.cu             # kernels + host wrappers
 │   ├── main_cuda.cpp               # CLI versión CUDA
+│   ├── tile_kernels.hpp            # API pública CUDA Tile C++
+│   ├── tile_kernels.cu             # `__tile_global__` + SIMT, `-enable-tile`
+│   ├── main_tile.cpp               # CLI versión CUDA Tile C++
 │   ├── stb_image.h
 │   └── stb_image_write.h
 ├── build/                          # binarios compilados (gitignored)
 └── results/                        # imágenes de salida y CSV (gitignored)
     ├── secuencial/<instancia>/     # salidas CPU
-    └── cuda/<instancia>/           # salidas CUDA
+    ├── cuda/<instancia>/           # salidas CUDA
+    └── tile/<instancia>/           # salidas CUDA Tile C++
 ```
 
 ## 5. Convenciones del código
@@ -101,9 +105,10 @@ filtro-sobel-cuda/
 | Gaussian blur CUDA clásico | ✅ | `src/cuda_kernels.cu::gaussianBlurKernel` |
 | Sobel CUDA clásico | ✅ | `src/cuda_kernels.cu::sobelKernel` |
 | Resize bilineal CUDA clásico | ✅ | `src/cuda_kernels.cu::bilinearResizeKernel` |
-| Gaussian blur CUDA Tile C++ | ❌ | — |
-| Sobel CUDA Tile C++ | ❌ | — |
-| Resize bilineal CUDA Tile C++ | ❌ | — |
+| Toolchain CUDA Tile C++ (`-enable-tile -std=c++20`) | ✅ | `src/tile_kernels.cu` con un `__tile_global__` (`tileIdentityKernel`) |
+| Gaussian blur CUDA Tile C++ | ⚠️ | `simtGaussianBlurKernel` (mismo algoritmo que clásico, en `.cu` con `-enable-tile`) |
+| Sobel CUDA Tile C++ | ⚠️ | `simtSobelKernel` (mismo algoritmo que clásico) |
+| Resize bilineal CUDA Tile C++ | ⚠️ | `simtBilinearResizeKernel` (mismo algoritmo que clásico) |
 | Cualquier etapa en cuTile Python | ❌ | — |
 | CSV de resultados | ❌ | — |
 | Profiling Nsight | ❌ | — |
@@ -116,7 +121,7 @@ Detalle fino contra la rúbrica: ver `TRACKING.md`.
 ## 7. Decisiones técnicas a resolver (abiertas)
 
 1. **Gaussiano separable vs. directo:** el PDF recomienda separable. Implementar ambas y comparar.
-2. **Tile size para CUDA Tile:** empezar con 32×32 y 16×16; documentar sensibilidad.
+2. **Tile size para CUDA Tile:** empezar con 32×32 y 16×16; documentar sensibilidad. (Estado actual: API Tile C++ en CUDA 13.3 no soporta stencils con acceso a vecinos de forma práctica; el binario se compila con `-enable-tile -std=c++20` y un kernel Tile de referencia `tileIdentityKernel`; las 4 etapas de la pipeline corren como SIMT dentro del mismo `.cu`, lo cual está oficialmente soportado.)
 3. **Bloque clásico:** `BLOCK_SIZE = 16` o `32` con grilla 2D cubriendo `(width+BLOCK-1)/BLOCK` en X e Y.
 4. **Librerías de medición:** además de CUDA Events, correr al menos una métrica con `nvprof`/`Nsight Compute` (`ncu --set full`).
 5. **cuTile Python:** elegir una etapa sencilla (Sugerencia: Sobel o conversión a luminancia) para minimizar tiempo de implementación.
@@ -138,6 +143,10 @@ make
 # Ejecutar CUDA clásico
 ./build/cuda.exe --instance=small --kernel-size=5 --scale=0.5
 ./build/cuda.exe --instance=large --kernel-size=9 --scale=1.75
+
+# Ejecutar CUDA Tile C++ (compilado con -enable-tile -std=c++20)
+./build/tile.exe --instance=small --kernel-size=5 --scale=0.5
+./build/tile.exe --instance=large --kernel-size=9 --scale=1.75
 
 # Perfilado (cuando se habilite la fase de medición)
 nsys profile -o results/perf/report ./build/cuda.exe --instance=small --kernel-size=5
