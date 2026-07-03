@@ -56,19 +56,27 @@ filtro-sobel-cuda/
 ├── AGENTS.md                       # este archivo (contexto para subagentes)
 ├── TRACKING.md                     # checklist de avance contra la rúbrica
 ├── README.md                       # instrucciones mínimas de compilación/ejecución
+├── Makefile                        # build para secuencial + cuda (nvcc -arch=native)
+├── build.bat                       # equivalente Windows (.bat)
 ├── Actividad_4_INFO1195_2026_Actualizado.pdf   # enunciado oficial
 ├── data/                           # imágenes de entrada
 │   ├── small/                      # ~512×512
-│   ├── medium/                     # ~2048×2048  (falta poblar)
-│   ├── large/                      # ~4096×4096  (falta poblar)
-│   └── no-divisible/               # ~1537×1021
+│   ├── medium/                     # ~2048×2048
+│   ├── large/                      # ~4096×4096
+│   └── no-divisible/               # ~1402×1122 (no múltiplo de 16/32)
 ├── src/                            # código fuente C++/CUDA
-│   ├── image.hpp                   # API pública
+│   ├── image.hpp                   # API pública CPU
 │   ├── image.cpp                   # versión CPU (referencia)
-│   ├── main.cpp                    # CLI y orquestación
+│   ├── main.cpp                    # CLI versión CPU
+│   ├── cuda_kernels.hpp            # API pública CUDA
+│   ├── cuda_kernels.cu             # kernels + host wrappers
+│   ├── main_cuda.cpp               # CLI versión CUDA
 │   ├── stb_image.h
 │   └── stb_image_write.h
-└── results/                        # imágenes de salida y CSV (a generar)
+├── build/                          # binarios compilados (gitignored)
+└── results/                        # imágenes de salida y CSV (gitignored)
+    ├── secuencial/<instancia>/     # salidas CPU
+    └── cuda/<instancia>/           # salidas CUDA
 ```
 
 ## 5. Convenciones del código
@@ -86,13 +94,13 @@ filtro-sobel-cuda/
 | Componente | Estado | Archivo |
 |------------|--------|---------|
 | Carga/guardado PNG | ✅ | `src/image.cpp` |
-| RGB → luminancia (0.299/0.587/0.114) | ✅ | `src/image.cpp::convertToGrayScale` |
-| Gaussian blur CPU (clamp, normalizado) | ✅ | `src/image.cpp::applyGaussianBlur` |
+| RGB → luminancia (0.299/0.587/0.114) | ✅ | `src/image.cpp::convertToGrayScale` / `src/cuda_kernels.cu::rgbToGrayKernel` |
+| Gaussian blur CPU (clamp, normalizado) | ✅ | `src/image.cpp::applyGaussianBlur` (convolución 2D directa) |
 | Sobel CPU (clamp, sqrt con saturación) | ✅ | `src/image.cpp::applySobelFilter` |
-| Resize bilineal CPU | ❌ | — |
-| Gaussian blur CUDA clásico | ❌ | — |
-| Sobel CUDA clásico | ❌ | — |
-| Resize bilineal CUDA clásico | ❌ | — |
+| Resize bilineal CPU | ✅ | `src/image.cpp::applyBilinearResize` |
+| Gaussian blur CUDA clásico | ✅ | `src/cuda_kernels.cu::gaussianBlurKernel` |
+| Sobel CUDA clásico | ✅ | `src/cuda_kernels.cu::sobelKernel` |
+| Resize bilineal CUDA clásico | ✅ | `src/cuda_kernels.cu::bilinearResizeKernel` |
 | Gaussian blur CUDA Tile C++ | ❌ | — |
 | Sobel CUDA Tile C++ | ❌ | — |
 | Resize bilineal CUDA Tile C++ | ❌ | — |
@@ -100,7 +108,7 @@ filtro-sobel-cuda/
 | CSV de resultados | ❌ | — |
 | Profiling Nsight | ❌ | — |
 | ≥10 repeticiones por config | ❌ | — |
-| Imágenes medium/large pobladas | ❌ | `data/` |
+| Imágenes medium/large pobladas | ✅ | `data/medium/ak-47.png`, `data/large/m16.png` |
 | Informe en PDF | ❌ | — |
 
 Detalle fino contra la rúbrica: ver `TRACKING.md`.
@@ -118,16 +126,22 @@ Detalle fino contra la rúbrica: ver `TRACKING.md`.
 ## 8. Comandos de referencia
 
 ```bash
-# Compilar versión CPU actual
-cd src && nvcc -std=c++17 image.cpp main.cpp -o secuencial
+# Compilar (Make o build.bat, ambos apuntan a nvcc con -arch=native)
+make
+# o
+./build.bat
 
 # Ejecutar CPU
-./secuencial --instance=small --kernel-size=5
-./secuencial --instance=no-divisible --kernel-size=9
+./build/secuencial.exe --instance=small --kernel-size=5 --scale=0.5
+./build/secuencial.exe --instance=no-divisible --kernel-size=9 --scale=1.75
 
-# Perfilado (cuando existan binarios CUDA)
-nsys profile -o results/perf/report ./binario
-ncu --set full --target-processes all -o results/perf/kernels ./binario
+# Ejecutar CUDA clásico
+./build/cuda.exe --instance=small --kernel-size=5 --scale=0.5
+./build/cuda.exe --instance=large --kernel-size=9 --scale=1.75
+
+# Perfilado (cuando se habilite la fase de medición)
+nsys profile -o results/perf/report ./build/cuda.exe --instance=small --kernel-size=5
+ncu --set full --target-processes all -o results/perf/kernels ./build/cuda.exe --instance=small --kernel-size=5
 ```
 
 ## 9. Recursos y referencias

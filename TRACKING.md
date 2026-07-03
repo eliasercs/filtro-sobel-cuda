@@ -25,14 +25,15 @@
 
 | # | Tarea | Estado | Detalle |
 |---|-------|--------|---------|
-| A.2.1 | RGB → luminancia (kernel) | ❌ | |
-| A.2.2 | Gaussian blur (kernel con grilla 2D, bordes clamp) | ❌ | Decidir entre directo o separable |
-| A.2.3 | Sobel (kernel 3×3, sqrt con `fminf`) | ❌ | |
-| A.2.4 | Resize bilineal (kernel por píxel de salida) | ❌ | |
-| A.2.5 | Reserva/liberación de memoria `cudaMalloc`/`cudaFree` | ❌ | Macro `CUDA_CHECK` pendiente |
-| A.2.6 | Transferencias `cudaMemcpy` H→D y D→H | ❌ | |
-| A.2.7 | Manejo de bordes y dimensiones no divisibles | ❌ | |
-| A.2.8 | Compilación separada (`Makefile` o `CMakeLists.txt`) | ❌ | Hoy solo `nvcc image.cpp main.cpp` |
+| A.2.1 | RGB → luminancia (kernel) | ✅ | `src/cuda_kernels.cu::rgbToGrayKernel` |
+| A.2.2 | Gaussian blur (kernel con grilla 2D, bordes clamp) | ✅ | `src/cuda_kernels.cu::gaussianBlurKernel` (convolución 2D directa) |
+| A.2.3 | Sobel (kernel 3×3, sqrt con `fminf`) | ✅ | `src/cuda_kernels.cu::sobelKernel` |
+| A.2.4 | Resize bilineal (kernel por píxel de salida) | ✅ | `src/cuda_kernels.cu::bilinearResizeKernel` |
+| A.2.5 | Reserva/liberación de memoria `cudaMalloc`/`cudaFree` | ✅ | Macro `CUDA_CHECK` en `src/cuda_kernels.cu` |
+| A.2.6 | Transferencias `cudaMemcpy` H→D y D→H | ✅ | En cada host wrapper |
+| A.2.7 | Manejo de bordes y dimensiones no divisibles | ✅ | Clamp en kernels; grid cubre `ceil(W/BLOCK) × ceil(H/BLOCK)` |
+| A.2.8 | Compilación separada (`Makefile` o `CMakeLists.txt`) | ✅ | `Makefile` y `build.bat` con `nvcc -arch=native` |
+| A.2.9 | Validación numérica vs CPU (MAE) | ✅ | gray MAE=0.01, blur MAE=0.01, sobel MAE=0.07, resize MAE=0.07 |
 
 ### A.3 Versión CUDA Tile C++
 
@@ -124,14 +125,14 @@
 
 | # | Criterio | Pond. | Estado | Notas |
 |---|----------|------:|--------|-------|
-| E.2.1 | Entrega real del código, estructura, compilación y ejecución base | 5 % | ⚠️ | Compila CPU; faltan dependencias/CMake/Makefile para el resto |
-| E.2.2 | Pipeline funcional de procesamiento de imágenes | 10 % | ⚠️ | CPU completa (gray+blur+sobel+resize); faltan versiones GPU |
-| E.2.3 | Referencia CPU secuencial y validación de precisión | 10 % | ⚠️ | CPU completa; falta comparar contra GPU y definir tolerancias |
-| E.2.4 | Implementación CUDA C++ clásica sin Tile | 15 % | ❌ | |
+| E.2.1 | Entrega real del código, estructura, compilación y ejecución base | 5 % | ✅ | `Makefile` y `build.bat` compilan ambas versiones; binarios en `build/` |
+| E.2.2 | Pipeline funcional de procesamiento de imágenes | 10 % | ✅ | CPU y CUDA clásico generan las 4 etapas en `results/{secuencial,cuda}/<instancia>/` |
+| E.2.3 | Referencia CPU secuencial y validación de precisión | 10 % | ✅ | CPU y CUDA validadas numéricamente (MAE ≤ 0.01 gray/blur, ≤ 0.07 sobel/resize) |
+| E.2.4 | Implementación CUDA C++ clásica sin Tile | 15 % | ✅ | 4 kernels, memoria, transferencias, bordes, validación MAE |
 | E.2.5 | Implementación CUDA Tile C++ | 20 % | ❌ | |
 | E.2.6 | Etapa complementaria en cuTile Python | 10 % | ❌ | |
 | E.2.7 | Implementación propia de kernels (no usar OpenCV/NPP/CuPy/PyTorch) | 5 % | ✅ | `stb_image` solo para I/O |
-| E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ❌ | |
+| E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ⚠️ | `CUDA_CHECK` + clamp en kernels; falta documentar layout/transferencias en el informe |
 | E.2.9 | Medición de rendimiento y profiling integrado | 10 % | ❌ | |
 | E.2.10 | Generación de resultados, CSV y trazabilidad experimental | 5 % | ❌ | |
 
@@ -139,13 +140,13 @@
 
 ## F. Pendientes priorizados (orden sugerido)
 
-1. ~~**B.1** Poblar `data/medium/` y `data/large/`.~~ Pendiente (lo aporta el usuario)
+1. ~~**B.1** Poblar `data/medium/` y `data/large/`.~~ ✅ Completado
 2. ~~**A.1.5** Implementar resize bilineal CPU.~~ ✅ Completado
-3. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
-4. **A.2.x** CUDA C++ clásico para las 3 etapas + memoria + transferencias.
-5. **A.3.x** CUDA Tile C++ para las 3 etapas.
-6. **A.4.x** cuTile Python para al menos una etapa.
-7. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
+3. ~~**A.2.x** CUDA C++ clásico.~~ ✅ Completado (kernels + memoria + transferencias + Makefile)
+4. **A.3.x** CUDA Tile C++ para las 3 etapas.
+5. **A.4.x** cuTile Python para al menos una etapa.
+6. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
+7. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
 8. **D.8** Redactar informe en PDF siguiendo la pauta 10.
 9. **D.2** Ampliar README con instrucciones para todas las versiones.
 
