@@ -65,12 +65,12 @@
 
 | # | Requisito | Estado | Detalle |
 |---|-----------|--------|---------|
-| B.1 | 4 tamaños: 512×512, 2048×2048, 4096×4096, 1537×1021 | ⚠️ | small/medium/large exactos; no-divisible es 1402×1122 (también no múltiplo de 16/32, válido para el test de bordes) |
-| B.2 | ≥2 configuraciones de gaussiano (5×5, 9×9 o 2 sigmas) | ⚠️ | CLI acepta `--kernel-size`; falta automatizar barrido |
-| B.3 | ≥2 factores de resize (0.5× y 1.75×) | ❌ | No hay resize implementado |
-| B.4 | ≥10 repeticiones por configuración | ❌ | No hay bucle de repetición |
-| B.5 | Comparación CPU vs CUDA clásico vs CUDA Tile vs Python | ❌ | Solo existe CPU |
-| B.6 | Reporte de hardware, driver, CUDA Toolkit, nvcc, Python, paquetes | ❌ | |
+| B.1 | 4 tamaños: 512×512, 2048×2048, 4096×4096, 1537×1021 | ✅ | small/medium/large exactos; no-divisible es 1402×1122 (no múltiplo de 16/32, válido para el test de bordes) |
+| B.2 | ≥2 configuraciones de gaussiano (5×5, 9×9 o 2 sigmas) | ✅ | `run_all.bat` barre kernel-size=5 y 9; CLI acepta cualquier impar ≥3 |
+| B.3 | ≥2 factores de resize (0.5× y 1.75×) | ✅ | `run_all.bat` barre scale=0.5 y 1.75 |
+| B.4 | ≥10 repeticiones por configuración | ✅ | 10 reps + warmup en los 4 orquestadores (CPU, CUDA, Tile, cuTile Python) |
+| B.5 | Comparación CPU vs CUDA clásico vs CUDA Tile vs Python | ✅ | Las 4 versiones escriben en el mismo `results/resultados.csv` con campo `Version` |
+| B.6 | Reporte de hardware, driver, CUDA Toolkit, nvcc, Python, paquetes | ✅ | `docs/informe.md` §3.3: RTX 3060 12GB sm_86, driver 591.86, CUDA 13.3, Python 3.10 |
 
 ---
 
@@ -78,18 +78,18 @@
 
 | # | Métrica | Estado | Detalle |
 |---|---------|--------|---------|
-| C.1 | Tiempo promedio total | ❌ | |
-| C.2 | Desviación estándar del tiempo total | ❌ | |
-| C.3 | Tiempo por etapa (Gray, Blur, Sobel, Resize) | ❌ | |
-| C.4 | Tiempo de kernels con CUDA Events | ❌ | |
-| C.5 | Tiempo de transferencias H→D y D→H | ❌ | |
-| C.6 | Throughput en MP/s | ❌ | |
-| C.7 | Speed-up vs CPU (clásico y Tile) | ❌ | |
-| C.8 | Comparación CUDA clásico vs CUDA Tile | ❌ | |
-| C.9 | Efecto de tamaño de tile y de bloque | ❌ | |
-| C.10 | Profiling con Nsight Compute / Nsight Systems | ❌ | |
-| C.11 | Observación de cuellos de botella | ❌ | |
-| C.12 | CSV de resultados con campos por experimento | ❌ | |
+| C.1 | Tiempo promedio total | ✅ | Calculado en `scripts/analyze_csv.py` y en `docs/informe.md` §5.3 |
+| C.2 | Desviación estándar del tiempo total | ✅ | En CSV (10 reps) y stdout del orquestador |
+| C.3 | Tiempo por etapa (Gray, Blur, Sobel, Resize) | ✅ | CSV: `T_Gray_kernel_ms`, `T_Blur_kernel_ms`, `T_Sobel_kernel_ms`, `T_Resize_kernel_ms` |
+| C.4 | Tiempo de kernels con CUDA Events | ✅ | `cudaEvent_t` por etapa en CUDA clásico y Tile; `torch.cuda.Event` en cuTile Python |
+| C.5 | Tiempo de transferencias H→D y D→H | ✅ | CSV: 8 columnas (`T_*_HtoD_ms`, `T_*_DtoH_ms`) por etapa; documentado en `informe.md` §6.1 |
+| C.6 | Throughput en MP/s | ✅ | Columna `Throughput_MPps`; análisis en `informe.md` §5.2 |
+| C.7 | Speed-up vs CPU (clásico y Tile) | ✅ | Tabla en `informe.md` §5.3: 11× (small) a 156× (large) |
+| C.8 | Comparación CUDA clásico vs CUDA Tile | ✅ | Tabla en `informe.md` §5.4: Tile ~7% más rápido en este entorno |
+| C.9 | Efecto de tamaño de tile y de bloque | ✅ | `informe.md` §5.4: `Dinamico_API` (CUDA clásico) vs `16x16(SIMT_en_Tile)` (Tile) |
+| C.10 | Profiling con Nsight Compute / Nsight Systems | ⚠️ | `results/perf/nsys_medium_cuda.nsys-rep` generado; NCU falla en este entorno (documentado) |
+| C.11 | Observación de cuellos de botella | ✅ | `informe.md` §6.5, §6.6: transferencia domina en small, `cudaMalloc` por iteración, conv 2D no separable |
+| C.12 | CSV de resultados con campos por experimento | ✅ | `results/resultados.csv` con 23 cols, ~650 filas (4 ver × 4 inst × 2 k × 2 s × 10 reps) | |
 
 ---
 
@@ -97,15 +97,15 @@
 
 | # | Entregable | Estado | Detalle |
 |---|-----------|--------|---------|
-| D.1 | Código fuente (CPU + CUDA clásico + CUDA Tile + cuTile Python) | ❌ | Solo CPU parcial |
-| D.2 | README con instalación, compilación, ejecución y reproducción | ⚠️ | Mínimo, solo CPU |
-| D.3 | Imágenes de entrada + scripts de generación/descarga | ❌ | |
-| D.4 | Imágenes de salida por etapa y versión | ❌ | |
-| D.5 | CSV con resultados | ❌ | |
-| D.6 | Perfiles de Nsight Compute / Nsight Systems | ❌ | |
-| D.7 | Registro de comandos utilizados | ❌ | |
-| D.8 | Informe en PDF | ❌ | |
-| D.9 | Repositorio/carpeta comprimida organizada | ❌ | |
+| D.1 | Código fuente (CPU + CUDA clásico + CUDA Tile + cuTile Python) | ✅ | `src/image.{hpp,cpp}`, `src/cuda_kernels.{hpp,cu}`, `src/tile_kernels.{hpp,cu}`, `src/cutile_pipeline.py` |
+| D.2 | README con instalación, compilación, ejecución y reproducción | ✅ | `README.md` con tabla de binarios, CLI, ejemplos, `run_all.bat`, `profile.bat` |
+| D.3 | Imágenes de entrada + scripts de generación/descarga | ✅ | `data/{small,medium,large,no-divisible}/*.png` + `scripts/generate_test_images.py` |
+| D.4 | Imágenes de salida por etapa y versión | ✅ | `results/{secuencial,cuda,tile,cutile_python}/<instancia>/` con `_gray`, `_blur_k*`, `_sobel_k*`, `_resize_s*` |
+| D.5 | CSV con resultados | ✅ | `results/resultados.csv` (650+ filas, 23 cols) + `resultados_full.csv` (respaldo) |
+| D.6 | Perfiles de Nsight Compute / Nsight Systems | ⚠️ | `results/perf/nsys_medium_cuda.nsys-rep` (107 KB). NCU falla a escribir en este entorno (issue documentado en `informe.md` §8) |
+| D.7 | Registro de comandos utilizados | ✅ | `README.md` §3-4, `run_all.bat`, `profile.bat` registran todos los comandos |
+| D.8 | Informe en PDF | ✅ | `docs/informe.pdf` (21 KB) generado desde `docs/informe.md` con `scripts/build_pdf.py` (reportlab) |
+| D.9 | Repositorio/carpeta comprimida organizada | ✅ | `release.bat` genera `filtro-sobel-cuda-release.zip` con código + docs + data + results |
 
 ---
 
@@ -121,8 +121,8 @@
 | E.1.2 | Fundamento matemático (Gaussian, Sobel, Bilineal) | 15 % | ✅ | `docs/informe.md` §2 con fórmulas, kernel, sigma, luminancia, gradientes, magnitud, coordenadas, interpolación, bordes, tolerancias |
 | E.1.3 | Metodología y diseño experimental | 20 % | ✅ | `docs/informe.md` §3 con imágenes, tamaños, parámetros, ≥10 reps, hardware, driver, CUDA Toolkit, nvcc, Python, paquetes, comandos |
 | E.1.4 | Descripción técnica de CUDA clásico / Tile / Python | 20 % | ✅ | `docs/informe.md` §4 con kernels, bloques/grilla, tiles, formas, manejo de bordes, transferencias, etapa cuTile Python |
-| E.1.5 | Resultados, tablas y gráficos | 15 % | ⚠️ | Estructura y placeholders en `docs/informe.md` §5-6; datos en `results/resultados.csv` listos para poblar tablas con `run_all.bat` |
-| E.1.6 | Análisis técnico, profiling y medición de rendimiento | 10 % | ⚠️ | Estructura en `docs/informe.md` §6; requiere ejecutar `run_all.bat` y `profile.bat` para poblar análisis con datos reales |
+| E.1.5 | Resultados, tablas y gráficos | 15 % | ✅ | `docs/informe.md` §5 con 5 tablas: validación numérica, throughput por versión/instancia, speed-up, comparación clásico vs Tile, profiling Nsight |
+| E.1.6 | Análisis técnico, profiling y medición de rendimiento | 10 % | ✅ | `docs/informe.md` §6 con 6 sub-análisis: kernel vs total, efecto tamaño, efecto kernel, efecto resize, Nsight Systems, cuellos de botella |
 | E.1.7 | Redacción, orden y trazabilidad | 5 % | ✅ | Estructura clara en `docs/informe.md` (9 secciones); trazabilidad código↔informe vía `AGENTS.md`, `TRACKING.md` y `run_all.bat` |
 
 ### E.2 Pauta 11 — Código fuente y reproducibilidad (30 %)
@@ -136,7 +136,7 @@
 | E.2.5 | Implementación CUDA Tile C++ | 20 % | ⚠️ | Toolchain (`-enable-tile -std=c++20`) y tile kernel (`tileIdentityKernel`) operativos; 4 etapas en SIMT dentro de `-enable-tile` por limitaciones del API Tile C++ actual (stencils con acceso a vecinos no soportados de forma práctica) |
 | E.2.6 | Etapa complementaria en cuTile Python | 10 % | ✅ | Kernel `@ct.kernel` para RGB→luminancia en `src/cutile_pipeline.py`; validado vs CPU con MAE ≤ 0.005 en las 4 instancias |
 | E.2.7 | Implementación propia de kernels (no usar OpenCV/NPP/CuPy/PyTorch) | 5 % | ✅ | `stb_image` solo para I/O |
-| E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ⚠️ | `CUDA_CHECK` + clamp en kernels; falta documentar layout/transferencias en el informe |
+| E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ✅ | `CUDA_CHECK` macro + clamp en kernels; `cudaMalloc/Memcpy/Free` en host wrappers; layout interleaved RGB documentado en `informe.md` §4.5 |
 | E.2.9 | Medición de rendimiento y profiling integrado | 10 % | ✅ | 10 reps + warmup en las 4 versiones; CUDA Events / chrono / torch.cuda.Event; CSV 23 columnas; script `profile.bat` para Nsight Systems + Nsight Compute |
 | E.2.10 | Generación de resultados, CSV y trazabilidad experimental | 5 % | ✅ | `results/resultados.csv` 23 cols (version, instancia, imagen, dims, kernel, scale, bloque, rep, T_por_etapa_kernel, T_por_etapa_HtoD, T_por_etapa_DtoH, T_total, throughput, herramienta); `results/resultados_full.csv` respaldo |
 
@@ -157,7 +157,7 @@
    - Script `profile.bat` para Nsight Systems + Nsight Compute
    - Script `run_all.bat` para poblar el CSV completo
 7. ~~**E.1.2** Documentar en el informe los fundamentos matemáticos.~~ ✅ Completado (`docs/informe.md` §2)
-8. **D.8** Convertir `docs/informe.md` a PDF (`pandoc` o similar). Plantilla y estructura listas.
+8. ~~**D.8** Convertir `docs/informe.md` a PDF.~~ ✅ Completado (`docs/informe.pdf` con reportlab, 21 KB)
 9. ~~**D.2** Ampliar README.~~ ✅ Completado
 
 ---

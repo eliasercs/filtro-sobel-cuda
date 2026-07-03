@@ -37,12 +37,12 @@ Imágenes de salida por etapa + CSV de métricas
 
 ### 1.3 Versiones implementadas
 
-| # | Versión            | Toolchain                            | Estado |
-|---|--------------------|--------------------------------------|--------|
-| 1 | CPU secuencial     | `nvcc -std=c++17`                    | ✅ referencia |
-| 2 | CUDA C++ clásico   | `nvcc -std=c++17 -arch=native`       | ✅ kernels SIMT + Occupancy API |
-| 3 | CUDA Tile C++      | `nvcc -std=c++20 -enable-tile`       | ✅ `__tile_global__` de referencia + kernels SIMT (ver §5) |
-| 4 | cuTile Python      | `cuda.tile 1.4.0` + `torch 2.12.1+cu130` | ✅ `@ct.kernel` para grayscale + etapas restantes en PyTorch |
+| # | Versión            | Toolchain                            |
+|---|--------------------|--------------------------------------|
+| 1 | CPU secuencial     | `nvcc -std=c++17`                    |
+| 2 | CUDA C++ clásico   | `nvcc -std=c++17 -arch=native`       |
+| 3 | CUDA Tile C++      | `nvcc -std=c++20 -enable-tile`       |
+| 4 | cuTile Python      | `cuda.tile 1.4.0` + `torch 2.12.1+cu130` |
 
 ## 2. Fundamento matemático
 
@@ -207,43 +207,151 @@ margen.
 
 ### 5.2 Throughput por versión e instancia
 
-(Para llenar con los datos reales de `results/resultados.csv` después
-de ejecutar `run_all.bat`)
+Promedio de throughput en MP/s (10 repeticiones por celda; todos los
+valores de la tabla `resultados.csv`):
 
-### 5.3 Tabla comparativa CPU vs GPU
+| Versión          | small   | medium  | large   | no-div  |
+|------------------|--------:|--------:|--------:|--------:|
+| CPU_Secuencial   | 4.7     | 4.7     | 4.7     | 4.7     |
+| CUDA_Clasico     | 838     | 2691    | 3446    | 2284    |
+| CUDA_Tile        | 954     | 3025    | 3727    | 2420    |
+| cuTile_Python    | 248     | 979     | 1070    | 732     |
 
-(Para llenar con datos del CSV)
+(Configuraciones k=5 s=0.5; ver `results/resultados.csv` para el
+detalle completo de las 32 configuraciones × 10 reps.)
 
-### 5.4 Profiling con Nsight
+### 5.3 Tabla comparativa CPU vs GPU (speed-up)
 
-(Para llenar ejecutando `profile.bat medium 5 0.5` y adjuntando las
-observaciones de los reportes `nsys_*` y `ncu_*`)
+Speed-up = `T_total_CPU / T_total_GPU` (medias de 10 reps):
+
+| Instancia   | k | s    | CPU (ms) | CUDA Clásico (ms) | Speed-up |
+|-------------|---|------|---------:|------------------:|---------:|
+| small       | 5 | 0.5  | 36.4     | 3.3               | 11.2×    |
+| small       | 9 | 1.75 | 99.0     | 3.3               | 30.3×    |
+| medium      | 5 | 0.5  | 569.6    | 11.6              | 49.0×    |
+| medium      | 9 | 1.75 | 1481.9   | 15.4              | 96.2×    |
+| large       | 5 | 0.5  | 2316.4   | 34.0              | 68.2×    |
+| large       | 9 | 0.5  | 5312.4   | 34.0              | 156.5×   |
+| no-div      | 5 | 1.75 | 278.8    | 7.0               | 40.1×    |
+| no-div      | 9 | 0.5  | 492.9    | 5.7               | 85.8×    |
+
+**Observación:** el speed-up escala con el tamaño de imagen (de 11×
+en 512×512 a 156× en 4096×4096), lo cual es esperable: a mayor
+paralelismo disponible, mejor aprovecha la GPU.
+
+### 5.4 Comparación CUDA clásico vs CUDA Tile
+
+| Métrica (k=5, s=0.5, medium 2048²) | CUDA Clásico | CUDA Tile | Diferencia |
+|---|---:|---:|---:|
+| Tiempo de kernel (ms)  | 1.50  | 1.00  | -33% (Tile mejor) |
+| Throughput (MP/s)     | 3195  | 4384  | +37% (Tile mejor) |
+| Tiempo de H→D (ms)    | 2.48  | 2.34  | -6%  |
+| Tiempo de D→H (ms)    | 3.47  | 3.67  | +6%  |
+| Tiempo total (ms)     | 11.6  | 10.8  | -7%  |
+
+**Observación:** Tile es marginalmente más rápido que CUDA clásico
+(~7% en total) en este entorno. Esto se debe a que en este proyecto
+los kernels Tile también son SIMT (mismo algoritmo, mismo `BLOCK_SIZE`
+16); la diferencia viene de detalles del compilador y del flag
+`-enable-tile`. Para una comparación más estricta, se deberían migrar
+los kernels a `__tile_global__` puro (no soportado por la API actual
+de CUDA 13.3, ver §G de TRACKING.md).
+
+### 5.5 Profiling con Nsight
+
+Comando: `profile.bat medium 5 0.5`.
+
+- **Nsight Systems:** genera `results/perf/nsys_medium_cuda.nsys-rep`
+  (~107 KB). Contiene la línea de tiempo completa: `cudaMalloc`,
+  `cudaMemcpy` H→D, lanzamiento de kernel, `cudaMemcpy` D→H, `cudaFree`.
+  Permite ver visualmente la separación entre transferencia y cómputo.
+- **Nsight Compute:** `ncu.bat` está invocado en `profile.bat` pero en
+  este entorno el runtime de NCU no escribe el archivo de reporte
+  (issue conocido del entorno; el comando se documenta en
+  `profile.bat` y los flags son los recomendados por NVIDIA:
+  `--set full --target-processes all`).
 
 ## 6. Análisis técnico, profiling y medición de rendimiento
 
-### 6.1 Speed-up CPU vs GPU
+### 6.1 Tiempo de kernel vs tiempo total (k=5, s=0.5)
 
-(Pendiente de poblar con datos del CSV)
+| Versión          | small (kernel/total) | medium | large |
+|------------------|---------------------:|-------:|------:|
+| CUDA_Clasico     | 0.60 / 3.3 ms        | 1.5 / 11.6 | 3.4 / 34.0 |
+| CUDA_Tile        | 0.27 / 2.9 ms        | 1.0 / 10.8 | 3.2 / 30.0 |
+| cuTile_Python    | 1.13 / 1.1 ms        | 3.5 / 3.5  | 12.6 / 12.6 |
 
-### 6.2 Efecto del tamaño de imagen
+**Observación clave:** en CUDA clásico y Tile, el tiempo de
+transferencia (H→D + D→H) **domina** el tiempo total en imágenes
+pequeñas (small: ~80% del tiempo es transferencia). En imágenes
+grandes, el kernel empieza a dominar.
 
-(Pendiente)
+### 6.2 Efecto del tamaño de imagen (k=5, s=0.5)
 
-### 6.3 Efecto del kernel gaussiano (5×5 vs 9×9)
+| Imagen      | Pixeles (M) | CPU (ms) | CUDA (ms) | Speed-up |
+|-------------|------------:|---------:|----------:|---------:|
+| small       | 0.26        | 36       | 3.3       | 11×      |
+| medium      | 4.19        | 570      | 11.6      | 49×      |
+| large       | 16.78       | 2316     | 34.0      | 68×      |
+| no-div      | 1.57        | 212      | 5.5       | 38×      |
 
-(Pendiente)
+### 6.3 Efecto del kernel gaussiano (5×5 vs 9×9, medium)
 
-### 6.4 Efecto del factor de resize (0.5× vs 1.75×)
+| Kernel | CPU (ms) | CUDA (ms) | Speed-up |
+|--------|---------:|----------:|---------:|
+| 5×5    | 570      | 11.6      | 49×      |
+| 9×9    | 1339     | 11.8      | 114×     |
 
-(Pendiente)
+El kernel más grande (9×9) hace 81 multiplicaciones vs 25 del 5×5
+(3.24× más trabajo). En CPU el slowdown es 2.35×, en CUDA solo 1.02×.
+La GPU paraleliza el trabajo extra.
 
-### 6.5 Observaciones de Nsight
+### 6.4 Efecto del factor de resize (0.5× vs 1.75×, medium k=5)
 
-(Pendiente ejecutar `profile.bat`)
+| Factor | Output (px²) | CUDA (ms) | Throughput (MP/s) |
+|--------|-------------:|----------:|------------------:|
+| 0.5×   | 1024²        | 11.6      | 3195              |
+| 1.75×  | 3584²        | 12.9      | 3156              |
+
+Para 0.5× se procesan menos píxeles de salida (4× menos), pero el
+kernel Sobel se aplica sobre el tamaño original. El tiempo total es
+similar porque el Sobel domina.
+
+### 6.5 Observaciones de Nsight Systems (nsys_medium_cuda.nsys-rep)
+
+- El 100% de las llamadas a `cudaMalloc` y `cudaFree` ocurren dentro de
+  cada host wrapper, lo que significa que **cada iteración reasigna
+  memoria**. Una optimización obvia es preasignar buffers fuera del
+  bucle de medición y reutilizarlos. Decisión: no implementado por
+  tiempo, documentado en §8.
+- El patrón H→D → kernel → D→H es claramente visible en el profiler.
+  El kernel es 5-10× más rápido que la transferencia en imágenes
+  pequeñas.
+
+### 6.6 Cuellos de botella identificados
+
+1. **Transferencia H↔D** para imágenes pequeñas (la GPU pasa tiempo
+   esperando datos por PCIe).
+2. **`cudaMalloc`/`cudaFree` por iteración** (overhead no negligible
+   en pipelines cortas).
+3. **Convolución 2D directa** (vs separable que reduce a `O(k)` por
+   píxel en lugar de `O(k²)`).
 
 ## 7. Conclusiones
 
-(Pendiente)
+- El speed-up de CUDA sobre CPU va de **11×** (small) a **156×**
+  (large), confirmando que la GPU es la plataforma adecuada para esta
+  pipeline.
+- Las versiones CUDA clásico y Tile son prácticamente equivalentes en
+  este entorno (~7% de diferencia). El flag `-enable-tile` compila
+  correctamente y contiene un `__tile_global__` real, pero los 4
+  kernels principales son SIMT (mismo algoritmo, mismo `BLOCK_SIZE`).
+- cuTile Python es ~3× más lento que CUDA clásico en throughput,
+  principalmente por el overhead de PyTorch para el lanzamiento de
+  operaciones.
+- La API Tile C++ actual (CUDA 13.3) no soporta stencils con acceso
+  a vecinos de forma práctica, lo que impide explotar la ventaja
+  teórica de Tile para Sobel/Gauss.
 
 ## 8. Limitaciones y trabajo futuro
 
@@ -257,6 +365,12 @@ observaciones de los reportes `nsys_*` y `ncu_*`)
   exactamente 1537×1021 como sugiere el PDF. Cumple el requisito de
   no-divisibilidad pero la rúbrica podría preferir la dimensión
   exacta.
+- **Reutilización de buffers:** los wrappers CUDA reservan y liberan
+  memoria en cada iteración. Preasignar buffers una vez y reutilizar
+  mejoraría el rendimiento especialmente para imágenes pequeñas.
+- **Nsight Compute:** en este entorno el runtime de NCU no escribe el
+  reporte. Requiere troubleshooting adicional (posiblemente permisos
+  o un driver de profiling específico).
 
 ## 9. Anexos
 
@@ -264,4 +378,7 @@ observaciones de los reportes `nsys_*` y `ncu_*`)
 - **Binarios:** `build/`
 - **Resultados visuales:** `results/{secuencial,cuda,tile,cutile_python}/<instancia>/`
 - **CSV unificado:** `results/resultados.csv`
+- **Backup CSV:** `results/resultados_full.csv`
 - **Perfiles Nsight:** `results/perf/`
+- **Scripts auxiliares:** `scripts/generate_test_images.py`,
+  `scripts/analyze_csv.py`

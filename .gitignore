@@ -5,3 +5,6 @@ src/*.obj
 *.pdb
 build/
 .vs/
+filtro-sobel-cuda-release.zip
+*.zip
+docs/informe.pdf
