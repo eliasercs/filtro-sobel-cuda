@@ -55,9 +55,11 @@ La comparación debe reportar correctitud, tiempo total, tiempo por kernel, tran
 filtro-sobel-cuda/
 ├── AGENTS.md                       # este archivo (contexto para subagentes)
 ├── TRACKING.md                     # checklist de avance contra la rúbrica
-├── README.md                       # instrucciones mínimas de compilación/ejecución
-├── Makefile                        # build para secuencial + cuda (nvcc -arch=native)
+├── README.md                       # instrucciones de instalación, compilación, ejecución, profiling
+├── Makefile                        # build para secuencial + cuda + tile
 ├── build.bat                       # equivalente Windows (.bat)
+├── run_all.bat                     # ejecuta las 4 versiones sobre 4 instancias
+├── profile.bat                     # invoca Nsight Systems + Nsight Compute
 ├── Actividad_4_INFO1195_2026_Actualizado.pdf   # enunciado oficial
 ├── data/                           # imágenes de entrada
 │   ├── small/                      # ~512×512
@@ -70,13 +72,26 @@ filtro-sobel-cuda/
 │   ├── main.cpp                    # CLI versión CPU
 │   ├── cuda_kernels.hpp            # API pública CUDA
 │   ├── cuda_kernels.cu             # kernels + host wrappers
-│   ├── main_cuda.cpp               # CLI versión CUDA
+│   ├── main_cuda.cpp               # CLI + orquestador CUDA clásico
 │   ├── tile_kernels.hpp            # API pública CUDA Tile C++
 │   ├── tile_kernels.cu             # `__tile_global__` + SIMT, `-enable-tile`
-│   ├── main_tile.cpp               # CLI versión CUDA Tile C++
-│   ├── cutile_pipeline.py          # etapa complementaria cuTile Python
+│   ├── main_tile.cpp               # CLI + orquestador Tile
+│   ├── cutile_pipeline.py          # cuTile Python + orquestador
 │   ├── stb_image.h
 │   └── stb_image_write.h
+├── docs/
+│   └── informe.md                  # informe técnico (convertible a PDF)
+├── build/                          # binarios compilados (gitignored)
+├── run_all.bat                     # ejecuta las 4 versiones sobre 4 instancias
+├── profile.bat                     # invoca Nsight Systems + Nsight Compute
+└── results/                        # imágenes de salida y CSV (gitignored)
+    ├── resultados.csv              # CSV unificado de las 4 versiones
+    ├── resultados_full.csv         # copia de respaldo
+    ├── secuencial/<instancia>/     # salidas CPU
+    ├── cuda/<instancia>/           # salidas CUDA
+    ├── tile/<instancia>/           # salidas CUDA Tile C++
+    ├── cutile_python/<instancia>/  # salidas etapa cuTile Python
+    └── perf/                       # reportes Nsight
 ├── build/                          # binarios compilados (gitignored)
 └── results/                        # imágenes de salida y CSV (gitignored)
     ├── secuencial/<instancia>/     # salidas CPU

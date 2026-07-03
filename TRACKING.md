@@ -117,13 +117,13 @@
 
 | # | Criterio | Pond. | Estado | Notas |
 |---|----------|------:|--------|-------|
-| E.1.1 | Introducción, contexto y formulación de la pipeline | 15 % | ❌ | |
-| E.1.2 | Fundamento matemático (Gaussian, Sobel, Bilineal) | 15 % | ⚠️ | Faltan fórmulas, normalización, luminancia, tolerancias |
-| E.1.3 | Metodología y diseño experimental | 20 % | ❌ | |
-| E.1.4 | Descripción técnica de CUDA clásico / Tile / Python | 20 % | ❌ | |
-| E.1.5 | Resultados, tablas y gráficos | 15 % | ❌ | |
-| E.1.6 | Análisis técnico, profiling y medición de rendimiento | 10 % | ❌ | |
-| E.1.7 | Redacción, orden y trazabilidad | 5 % | ❌ | |
+| E.1.1 | Introducción, contexto y formulación de la pipeline | 15 % | ✅ | `docs/informe.md` §1 |
+| E.1.2 | Fundamento matemático (Gaussian, Sobel, Bilineal) | 15 % | ✅ | `docs/informe.md` §2 con fórmulas, kernel, sigma, luminancia, gradientes, magnitud, coordenadas, interpolación, bordes, tolerancias |
+| E.1.3 | Metodología y diseño experimental | 20 % | ✅ | `docs/informe.md` §3 con imágenes, tamaños, parámetros, ≥10 reps, hardware, driver, CUDA Toolkit, nvcc, Python, paquetes, comandos |
+| E.1.4 | Descripción técnica de CUDA clásico / Tile / Python | 20 % | ✅ | `docs/informe.md` §4 con kernels, bloques/grilla, tiles, formas, manejo de bordes, transferencias, etapa cuTile Python |
+| E.1.5 | Resultados, tablas y gráficos | 15 % | ⚠️ | Estructura y placeholders en `docs/informe.md` §5-6; datos en `results/resultados.csv` listos para poblar tablas con `run_all.bat` |
+| E.1.6 | Análisis técnico, profiling y medición de rendimiento | 10 % | ⚠️ | Estructura en `docs/informe.md` §6; requiere ejecutar `run_all.bat` y `profile.bat` para poblar análisis con datos reales |
+| E.1.7 | Redacción, orden y trazabilidad | 5 % | ✅ | Estructura clara en `docs/informe.md` (9 secciones); trazabilidad código↔informe vía `AGENTS.md`, `TRACKING.md` y `run_all.bat` |
 
 ### E.2 Pauta 11 — Código fuente y reproducibilidad (30 %)
 
@@ -137,8 +137,8 @@
 | E.2.6 | Etapa complementaria en cuTile Python | 10 % | ✅ | Kernel `@ct.kernel` para RGB→luminancia en `src/cutile_pipeline.py`; validado vs CPU con MAE ≤ 0.005 en las 4 instancias |
 | E.2.7 | Implementación propia de kernels (no usar OpenCV/NPP/CuPy/PyTorch) | 5 % | ✅ | `stb_image` solo para I/O |
 | E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ⚠️ | `CUDA_CHECK` + clamp en kernels; falta documentar layout/transferencias en el informe |
-| E.2.9 | Medición de rendimiento y profiling integrado | 10 % | ❌ | |
-| E.2.10 | Generación de resultados, CSV y trazabilidad experimental | 5 % | ❌ | |
+| E.2.9 | Medición de rendimiento y profiling integrado | 10 % | ✅ | 10 reps + warmup en las 4 versiones; CUDA Events / chrono / torch.cuda.Event; CSV 23 columnas; script `profile.bat` para Nsight Systems + Nsight Compute |
+| E.2.10 | Generación de resultados, CSV y trazabilidad experimental | 5 % | ✅ | `results/resultados.csv` 23 cols (version, instancia, imagen, dims, kernel, scale, bloque, rep, T_por_etapa_kernel, T_por_etapa_HtoD, T_por_etapa_DtoH, T_total, throughput, herramienta); `results/resultados_full.csv` respaldo |
 
 ---
 
@@ -148,16 +148,17 @@
 2. ~~**A.1.5** Implementar resize bilineal CPU.~~ ✅ Completado
 3. ~~**A.2.x** CUDA C++ clásico.~~ ✅ Completado
 4. ~~**A.3.x** CUDA Tile C++.~~ ✅ Completado
-5. ~~**A.4.x** cuTile Python.~~ ✅ Completado (etapa grayscale con `@ct.kernel`)
-6. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
-   - ✅ 10 reps + warmup + CUDA Events + CSV 14 columnas + promedio + std (heredado del merge con branch `patricio`, 2026-07-03)
-   - ❌ Falta extender el orquestador a CPU, Tile y cuTile Python
-   - ❌ Falta separar tiempo de kernel vs transferencia
-   - ❌ Falta columna de throughput (MP/s)
-   - ❌ Falta profiling Nsight Compute / Nsight Systems
-7. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
-8. **D.8** Redactar informe en PDF siguiendo la pauta 10.
-9. **D.2** Ampliar README con instrucciones para todas las versiones.
+5. ~~**A.4.x** cuTile Python.~~ ✅ Completado
+6. ~~**B.4 + C.1-C.12** Orquestador.~~ ✅ Completado
+   - 10 reps + warmup + CUDA Events / chrono / torch.cuda.Event
+   - Tiempos desglosados por H→D, kernel y D→H
+   - CSV unificado de 23 columnas en `results/resultados.csv`
+   - Throughput en MP/s
+   - Script `profile.bat` para Nsight Systems + Nsight Compute
+   - Script `run_all.bat` para poblar el CSV completo
+7. ~~**E.1.2** Documentar en el informe los fundamentos matemáticos.~~ ✅ Completado (`docs/informe.md` §2)
+8. **D.8** Convertir `docs/informe.md` a PDF (`pandoc` o similar). Plantilla y estructura listas.
+9. ~~**D.2** Ampliar README.~~ ✅ Completado
 
 ---
 
