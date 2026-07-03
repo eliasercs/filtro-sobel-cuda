@@ -212,30 +212,71 @@ unsigned char* cudaRgbToGray(
     const unsigned char* h_rgb,
     int width,
     int height,
-    int channels
+    int channels,
+    CudaStageTimings* timings
 ) {
+    if (timings) {
+        timings->hToD_ms = 0.0f;
+        timings->kernel_ms = 0.0f;
+        timings->dToH_ms = 0.0f;
+        timings->total_ms = 0.0f;
+    }
+
     size_t rgbBytes = static_cast<size_t>(width) * height * channels;
     size_t grayBytes = static_cast<size_t>(width) * height;
+
+    cudaEvent_t startTotal = nullptr, stopTotal = nullptr;
+    cudaEvent_t startHtoD = nullptr, stopHtoD = nullptr;
+    cudaEvent_t startKernel = nullptr, stopKernel = nullptr;
+    cudaEvent_t startDtoH = nullptr, stopDtoH = nullptr;
+
+    if (timings) {
+        cudaEventCreate(&startTotal);  cudaEventCreate(&stopTotal);
+        cudaEventCreate(&startHtoD);  cudaEventCreate(&stopHtoD);
+        cudaEventCreate(&startKernel); cudaEventCreate(&stopKernel);
+        cudaEventCreate(&startDtoH);  cudaEventCreate(&stopDtoH);
+        cudaEventRecord(startTotal);
+    }
 
     unsigned char* d_rgb = nullptr;
     unsigned char* d_gray = nullptr;
     CUDA_CHECK(cudaMalloc(&d_rgb, rgbBytes));
     CUDA_CHECK(cudaMalloc(&d_gray, grayBytes));
 
+    if (timings) cudaEventRecord(startHtoD);
     CUDA_CHECK(cudaMemcpy(d_rgb, h_rgb, rgbBytes, cudaMemcpyHostToDevice));
+    if (timings) cudaEventRecord(stopHtoD);
 
     dim3 grid, block;
     getOptimalBlockGrid2D(rgbToGrayKernel, width, height, grid, block);
 
+    if (timings) cudaEventRecord(startKernel);
     rgbToGrayKernel<<<grid, block>>>(d_rgb, d_gray, width, height, channels);
     CUDA_CHECK(cudaGetLastError());
+    if (timings) cudaEventRecord(stopKernel);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     unsigned char* h_gray = new unsigned char[grayBytes];
+    if (timings) cudaEventRecord(startDtoH);
     CUDA_CHECK(cudaMemcpy(h_gray, d_gray, grayBytes, cudaMemcpyDeviceToHost));
+    if (timings) cudaEventRecord(stopDtoH);
 
     cudaFree(d_rgb);
     cudaFree(d_gray);
+
+    if (timings) {
+        cudaEventRecord(stopTotal);
+        cudaEventSynchronize(stopTotal);
+        cudaEventElapsedTime(&timings->hToD_ms, startHtoD, stopHtoD);
+        cudaEventElapsedTime(&timings->kernel_ms, startKernel, stopKernel);
+        cudaEventElapsedTime(&timings->dToH_ms, startDtoH, stopDtoH);
+        cudaEventElapsedTime(&timings->total_ms, startTotal, stopTotal);
+        cudaEventDestroy(startTotal);  cudaEventDestroy(stopTotal);
+        cudaEventDestroy(startHtoD);  cudaEventDestroy(stopHtoD);
+        cudaEventDestroy(startKernel); cudaEventDestroy(stopKernel);
+        cudaEventDestroy(startDtoH);  cudaEventDestroy(stopDtoH);
+    }
+
     return h_gray;
 }
 
@@ -244,12 +285,33 @@ unsigned char* cudaGaussianBlur(
     int width,
     int height,
     int kernelSize,
-    float sigma
+    float sigma,
+    CudaStageTimings* timings
 ) {
+    if (timings) {
+        timings->hToD_ms = 0.0f;
+        timings->kernel_ms = 0.0f;
+        timings->dToH_ms = 0.0f;
+        timings->total_ms = 0.0f;
+    }
+
     float* h_kernel = createFlatGaussKernel(kernelSize, sigma);
 
     size_t bytes = static_cast<size_t>(width) * height;
     size_t kbytes = static_cast<size_t>(kernelSize) * kernelSize * sizeof(float);
+
+    cudaEvent_t startTotal = nullptr, stopTotal = nullptr;
+    cudaEvent_t startHtoD = nullptr, stopHtoD = nullptr;
+    cudaEvent_t startKernel = nullptr, stopKernel = nullptr;
+    cudaEvent_t startDtoH = nullptr, stopDtoH = nullptr;
+
+    if (timings) {
+        cudaEventCreate(&startTotal);  cudaEventCreate(&stopTotal);
+        cudaEventCreate(&startHtoD);  cudaEventCreate(&stopHtoD);
+        cudaEventCreate(&startKernel); cudaEventCreate(&stopKernel);
+        cudaEventCreate(&startDtoH);  cudaEventCreate(&stopDtoH);
+        cudaEventRecord(startTotal);
+    }
 
     unsigned char* d_in = nullptr;
     unsigned char* d_out = nullptr;
@@ -258,54 +320,115 @@ unsigned char* cudaGaussianBlur(
     CUDA_CHECK(cudaMalloc(&d_out, bytes));
     CUDA_CHECK(cudaMalloc(&d_kernel, kbytes));
 
+    if (timings) cudaEventRecord(startHtoD);
     CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_kernel, h_kernel, kbytes, cudaMemcpyHostToDevice));
+    if (timings) cudaEventRecord(stopHtoD);
 
     dim3 grid, block;
     getOptimalBlockGrid2D(gaussianBlurKernel, width, height, grid, block);
 
+    if (timings) cudaEventRecord(startKernel);
     gaussianBlurKernel<<<grid, block>>>(
         d_in, d_out, width, height, d_kernel, kernelSize
     );
     CUDA_CHECK(cudaGetLastError());
+    if (timings) cudaEventRecord(stopKernel);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     unsigned char* h_out = new unsigned char[bytes];
+    if (timings) cudaEventRecord(startDtoH);
     CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
+    if (timings) cudaEventRecord(stopDtoH);
 
     cudaFree(d_in);
     cudaFree(d_out);
     cudaFree(d_kernel);
     delete[] h_kernel;
+
+    if (timings) {
+        cudaEventRecord(stopTotal);
+        cudaEventSynchronize(stopTotal);
+        cudaEventElapsedTime(&timings->hToD_ms, startHtoD, stopHtoD);
+        cudaEventElapsedTime(&timings->kernel_ms, startKernel, stopKernel);
+        cudaEventElapsedTime(&timings->dToH_ms, startDtoH, stopDtoH);
+        cudaEventElapsedTime(&timings->total_ms, startTotal, stopTotal);
+        cudaEventDestroy(startTotal);  cudaEventDestroy(stopTotal);
+        cudaEventDestroy(startHtoD);  cudaEventDestroy(stopHtoD);
+        cudaEventDestroy(startKernel); cudaEventDestroy(stopKernel);
+        cudaEventDestroy(startDtoH);  cudaEventDestroy(stopDtoH);
+    }
+
     return h_out;
 }
 
 unsigned char* cudaSobel(
     const unsigned char* h_in,
     int width,
-    int height
+    int height,
+    CudaStageTimings* timings
 ) {
+    if (timings) {
+        timings->hToD_ms = 0.0f;
+        timings->kernel_ms = 0.0f;
+        timings->dToH_ms = 0.0f;
+        timings->total_ms = 0.0f;
+    }
+
     size_t bytes = static_cast<size_t>(width) * height;
+
+    cudaEvent_t startTotal = nullptr, stopTotal = nullptr;
+    cudaEvent_t startHtoD = nullptr, stopHtoD = nullptr;
+    cudaEvent_t startKernel = nullptr, stopKernel = nullptr;
+    cudaEvent_t startDtoH = nullptr, stopDtoH = nullptr;
+
+    if (timings) {
+        cudaEventCreate(&startTotal);  cudaEventCreate(&stopTotal);
+        cudaEventCreate(&startHtoD);  cudaEventCreate(&stopHtoD);
+        cudaEventCreate(&startKernel); cudaEventCreate(&stopKernel);
+        cudaEventCreate(&startDtoH);  cudaEventCreate(&stopDtoH);
+        cudaEventRecord(startTotal);
+    }
 
     unsigned char* d_in = nullptr;
     unsigned char* d_out = nullptr;
     CUDA_CHECK(cudaMalloc(&d_in, bytes));
     CUDA_CHECK(cudaMalloc(&d_out, bytes));
 
+    if (timings) cudaEventRecord(startHtoD);
     CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
+    if (timings) cudaEventRecord(stopHtoD);
 
     dim3 grid, block;
     getOptimalBlockGrid2D(sobelKernel, width, height, grid, block);
 
+    if (timings) cudaEventRecord(startKernel);
     sobelKernel<<<grid, block>>>(d_in, d_out, width, height);
     CUDA_CHECK(cudaGetLastError());
+    if (timings) cudaEventRecord(stopKernel);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     unsigned char* h_out = new unsigned char[bytes];
+    if (timings) cudaEventRecord(startDtoH);
     CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
+    if (timings) cudaEventRecord(stopDtoH);
 
     cudaFree(d_in);
     cudaFree(d_out);
+
+    if (timings) {
+        cudaEventRecord(stopTotal);
+        cudaEventSynchronize(stopTotal);
+        cudaEventElapsedTime(&timings->hToD_ms, startHtoD, stopHtoD);
+        cudaEventElapsedTime(&timings->kernel_ms, startKernel, stopKernel);
+        cudaEventElapsedTime(&timings->dToH_ms, startDtoH, stopDtoH);
+        cudaEventElapsedTime(&timings->total_ms, startTotal, stopTotal);
+        cudaEventDestroy(startTotal);  cudaEventDestroy(stopTotal);
+        cudaEventDestroy(startHtoD);  cudaEventDestroy(stopHtoD);
+        cudaEventDestroy(startKernel); cudaEventDestroy(stopKernel);
+        cudaEventDestroy(startDtoH);  cudaEventDestroy(stopDtoH);
+    }
+
     return h_out;
 }
 
@@ -315,11 +438,18 @@ unsigned char* cudaBilinearResize(
     int height,
     float scale,
     int* outWidth,
-    int* outHeight
+    int* outHeight,
+    CudaStageTimings* timings
 ) {
     if (scale <= 0.0f) {
         *outWidth = 0;
         *outHeight = 0;
+        if (timings) {
+            timings->hToD_ms = 0.0f;
+            timings->kernel_ms = 0.0f;
+            timings->dToH_ms = 0.0f;
+            timings->total_ms = 0.0f;
+        }
         return nullptr;
     }
 
@@ -331,30 +461,69 @@ unsigned char* cudaBilinearResize(
     *outWidth = newWidth;
     *outHeight = newHeight;
 
+    if (timings) {
+        timings->hToD_ms = 0.0f;
+        timings->kernel_ms = 0.0f;
+        timings->dToH_ms = 0.0f;
+        timings->total_ms = 0.0f;
+    }
+
     size_t inBytes = static_cast<size_t>(width) * height;
     size_t outBytes = static_cast<size_t>(newWidth) * newHeight;
+
+    cudaEvent_t startTotal = nullptr, stopTotal = nullptr;
+    cudaEvent_t startHtoD = nullptr, stopHtoD = nullptr;
+    cudaEvent_t startKernel = nullptr, stopKernel = nullptr;
+    cudaEvent_t startDtoH = nullptr, stopDtoH = nullptr;
+
+    if (timings) {
+        cudaEventCreate(&startTotal);  cudaEventCreate(&stopTotal);
+        cudaEventCreate(&startHtoD);  cudaEventCreate(&stopHtoD);
+        cudaEventCreate(&startKernel); cudaEventCreate(&stopKernel);
+        cudaEventCreate(&startDtoH);  cudaEventCreate(&stopDtoH);
+        cudaEventRecord(startTotal);
+    }
 
     unsigned char* d_in = nullptr;
     unsigned char* d_out = nullptr;
     CUDA_CHECK(cudaMalloc(&d_in, inBytes));
     CUDA_CHECK(cudaMalloc(&d_out, outBytes));
 
+    if (timings) cudaEventRecord(startHtoD);
     CUDA_CHECK(cudaMemcpy(d_in, h_in, inBytes, cudaMemcpyHostToDevice));
+    if (timings) cudaEventRecord(stopHtoD);
 
     dim3 grid, block;
-    // Se calcula la ocupación en base al nuevo tamaño de salida
     getOptimalBlockGrid2D(bilinearResizeKernel, newWidth, newHeight, grid, block);
 
+    if (timings) cudaEventRecord(startKernel);
     bilinearResizeKernel<<<grid, block>>>(
         d_in, d_out, width, height, newWidth, newHeight
     );
     CUDA_CHECK(cudaGetLastError());
+    if (timings) cudaEventRecord(stopKernel);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     unsigned char* h_out = new unsigned char[outBytes];
+    if (timings) cudaEventRecord(startDtoH);
     CUDA_CHECK(cudaMemcpy(h_out, d_out, outBytes, cudaMemcpyDeviceToHost));
+    if (timings) cudaEventRecord(stopDtoH);
 
     cudaFree(d_in);
     cudaFree(d_out);
+
+    if (timings) {
+        cudaEventRecord(stopTotal);
+        cudaEventSynchronize(stopTotal);
+        cudaEventElapsedTime(&timings->hToD_ms, startHtoD, stopHtoD);
+        cudaEventElapsedTime(&timings->kernel_ms, startKernel, stopKernel);
+        cudaEventElapsedTime(&timings->dToH_ms, startDtoH, stopDtoH);
+        cudaEventElapsedTime(&timings->total_ms, startTotal, stopTotal);
+        cudaEventDestroy(startTotal);  cudaEventDestroy(stopTotal);
+        cudaEventDestroy(startHtoD);  cudaEventDestroy(stopHtoD);
+        cudaEventDestroy(startKernel); cudaEventDestroy(stopKernel);
+        cudaEventDestroy(startDtoH);  cudaEventDestroy(stopDtoH);
+    }
+
     return h_out;
 }

@@ -1,11 +1,19 @@
 #ifndef CUDA_KERNELS_HPP
 #define CUDA_KERNELS_HPP
 
+struct CudaStageTimings {
+    float hToD_ms;
+    float kernel_ms;
+    float dToH_ms;
+    float total_ms;
+};
+
 unsigned char* cudaRgbToGray(
     const unsigned char* h_rgb,
     int width,
     int height,
-    int channels
+    int channels,
+    CudaStageTimings* timings = nullptr
 );
 
 unsigned char* cudaGaussianBlur(
@@ -13,13 +21,15 @@ unsigned char* cudaGaussianBlur(
     int width,
     int height,
     int kernelSize,
-    float sigma
+    float sigma,
+    CudaStageTimings* timings = nullptr
 );
 
 unsigned char* cudaSobel(
     const unsigned char* h_in,
     int width,
-    int height
+    int height,
+    CudaStageTimings* timings = nullptr
 );
 
 unsigned char* cudaBilinearResize(
@@ -28,7 +38,8 @@ unsigned char* cudaBilinearResize(
     int height,
     float scale,
     int* outWidth,
-    int* outHeight
+    int* outHeight,
+    CudaStageTimings* timings = nullptr
 );
 
 #endif

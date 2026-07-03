@@ -28,26 +28,22 @@ int processImageCuda(
     float sigma = (kernelSize - 1) / 6.0f;
 
     int repeticiones = 10;
-    std::vector<float> tiempos_totales(repeticiones, 0.0f);
-    std::vector<float> tiempos_gray(repeticiones, 0.0f);
-    std::vector<float> tiempos_blur(repeticiones, 0.0f);
-    std::vector<float> tiempos_sobel(repeticiones, 0.0f);
-    std::vector<float> tiempos_resize(repeticiones, 0.0f);
+    std::vector<CudaStageTimings> t_gray(repeticiones);
+    std::vector<CudaStageTimings> t_blur(repeticiones);
+    std::vector<CudaStageTimings> t_sobel(repeticiones);
+    std::vector<CudaStageTimings> t_resize(repeticiones);
 
     std::cout << "\nProcesando imagen: " << fs::path(input).filename().string() << std::endl;
 
-    // --- CALENTAMIENTO (WARMUP) ---
-    // Ejecutamos una vez sin medir para despertar la GPU y cargar el contexto CUDA
     std::cout << "Realizando iteracion de calentamiento de GPU...\n";
-    unsigned char* w_gray = cudaRgbToGray(img, width, height, channels);
-    unsigned char* w_blur = cudaGaussianBlur(w_gray, width, height, kernelSize, sigma);
-    unsigned char* w_sobel = cudaSobel(w_blur, width, height);
+    CudaStageTimings t_dummy;
+    unsigned char* w_gray = cudaRgbToGray(img, width, height, channels, &t_dummy);
+    unsigned char* w_blur = cudaGaussianBlur(w_gray, width, height, kernelSize, sigma, &t_dummy);
+    unsigned char* w_sobel = cudaSobel(w_blur, width, height, &t_dummy);
     int w_outW, w_outH;
-    unsigned char* w_resize = cudaBilinearResize(w_sobel, width, height, scale, &w_outW, &w_outH);
-    
-    // Liberamos la memoria del calentamiento
-    delete[] w_gray; delete[] w_blur; delete[] w_sobel; 
-    if(w_resize != nullptr) delete[] w_resize;
+    unsigned char* w_resize = cudaBilinearResize(w_sobel, width, height, scale, &w_outW, &w_outH, &t_dummy);
+    delete[] w_gray; delete[] w_blur; delete[] w_sobel;
+    if (w_resize != nullptr) delete[] w_resize;
 
     std::cout << "Iniciando " << repeticiones << " repeticiones de medicion...\n";
 
@@ -58,61 +54,24 @@ int processImageCuda(
     int outWidth = width;
     int outHeight = height;
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
     for (int i = 0; i < repeticiones; ++i) {
-        float ms_gray = 0, ms_blur = 0, ms_sobel = 0, ms_resize = 0;
+        CudaStageTimings ts;
 
-        // =================================================================
-        // ETAPA 1: Escala de Grises
-        // =================================================================
-        cudaEventRecord(start);
-        unsigned char* gray = cudaRgbToGray(img, width, height, channels);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&ms_gray, start, stop);
+        unsigned char* gray = cudaRgbToGray(img, width, height, channels, &t_gray[i]);
 
-        // =================================================================
-        // ETAPA 2: Gaussian Blur
-        // =================================================================
-        cudaEventRecord(start);
-        unsigned char* blur = cudaGaussianBlur(gray, width, height, kernelSize, sigma);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&ms_blur, start, stop);
+        unsigned char* blur = cudaGaussianBlur(
+            gray, width, height, kernelSize, sigma, &t_blur[i]
+        );
 
-        // =================================================================
-        // ETAPA 3: Sobel
-        // =================================================================
-        cudaEventRecord(start);
-        unsigned char* sobel = cudaSobel(blur, width, height);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&ms_sobel, start, stop);
+        unsigned char* sobel = cudaSobel(blur, width, height, &t_sobel[i]);
 
-        // =================================================================
-        // ETAPA 4: Resize Bilineal
-        // =================================================================
         int currentOutWidth = width;
         int currentOutHeight = height;
-        unsigned char* resized = nullptr;
-        
-        cudaEventRecord(start);
-        resized = cudaBilinearResize(sobel, width, height, scale, &currentOutWidth, &currentOutHeight);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&ms_resize, start, stop);
+        unsigned char* resized = cudaBilinearResize(
+            sobel, width, height, scale, &currentOutWidth, &currentOutHeight, &t_resize[i]
+        );
 
-        // Guardar los tiempos separados
-        tiempos_gray[i] = ms_gray;
-        tiempos_blur[i] = ms_blur;
-        tiempos_sobel[i] = ms_sobel;
-        tiempos_resize[i] = ms_resize;
-        tiempos_totales[i] = ms_gray + ms_blur + ms_sobel + ms_resize;
-
-        std::cout << "  Repeticion " << (i + 1) << " completada.\n";
+        std::cout << "  Repeticion " << (i + 1) << " completada." << std::endl;
 
         if (i == repeticiones - 1) {
             final_gray = gray;
@@ -129,46 +88,85 @@ int processImageCuda(
         }
     }
 
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    auto sumTotal = [](const std::vector<CudaStageTimings>& v) {
+        float s = 0.0f;
+        for (const auto& t : v) s += t.total_ms;
+        return s;
+    };
+    auto sumKernel = [](const std::vector<CudaStageTimings>& v) {
+        float s = 0.0f;
+        for (const auto& t : v) s += t.kernel_ms;
+        return s;
+    };
 
-    // --- CÁLCULO DE PROMEDIO Y DESVIACIÓN ESTÁNDAR ---
-    float suma = std::accumulate(tiempos_totales.begin(), tiempos_totales.end(), 0.0f);
-    float promedio = suma / repeticiones;
+    float promedio_total = sumTotal(t_gray) / repeticiones
+                         + sumTotal(t_blur) / repeticiones
+                         + sumTotal(t_sobel) / repeticiones
+                         + sumTotal(t_resize) / repeticiones;
+    float promedio_kernel = sumKernel(t_gray) / repeticiones
+                          + sumKernel(t_blur) / repeticiones
+                          + sumKernel(t_sobel) / repeticiones
+                          + sumKernel(t_resize) / repeticiones;
 
-    float suma_varianza = 0.0f;
-    for (float t : tiempos_totales) {
-        suma_varianza += (t - promedio) * (t - promedio);
+    float sum_sq = 0.0f;
+    for (int i = 0; i < repeticiones; ++i) {
+        float t = t_gray[i].total_ms + t_blur[i].total_ms
+                + t_sobel[i].total_ms + t_resize[i].total_ms;
+        sum_sq += (t - promedio_total) * (t - promedio_total);
     }
-    float desviacion = std::sqrt(suma_varianza / repeticiones);
+    float desviacion = std::sqrt(sum_sq / repeticiones);
 
-    std::cout << "--> Tiempo promedio total: " << promedio << " ms\n";
-    std::cout << "--> Desviacion estandar: " << desviacion << " ms\n";
+    std::cout << "--> Tiempo promedio total (con transfer): " << promedio_total << " ms\n";
+    std::cout << "--> Tiempo promedio kernels (sin transfer): " << promedio_kernel << " ms\n";
+    std::cout << "--> Desviacion estandar (total): " << desviacion << " ms\n";
 
-    // --- EXPORTAR A CSV CON TODAS LAS MÉTRICAS DE LA RÚBRICA ---
+    double pixels = static_cast<double>(width) * height;
+    double throughput = (pixels / 1.0e6) / (promedio_kernel / 1000.0);
+    std::cout << "--> Throughput kernels: " << throughput << " MP/s\n";
+
     std::string csvPath = "../results/resultados.csv";
     bool fileExists = fs::exists(csvPath);
     std::ofstream file(csvPath, std::ios::app);
-    
+
     if (file.is_open()) {
         if (!fileExists) {
-            // Cabecera completa según rúbrica
-            file << "Version,Instancia,Imagen,DimensionesOrig,KernelSize,Scale,Bloque,Repeticion,T_Gray_ms,T_Blur_ms,T_Sobel_ms,T_Resize_ms,T_Total_ms,Herramienta\n";
+            file << "Version,Instancia,Imagen,DimensionesOrig,KernelSize,Scale,Bloque,Repeticion,"
+                 << "T_Gray_kernel_ms,T_Blur_kernel_ms,T_Sobel_kernel_ms,T_Resize_kernel_ms,"
+                 << "T_Gray_HtoD_ms,T_Gray_DtoH_ms,T_Blur_HtoD_ms,T_Blur_DtoH_ms,"
+                 << "T_Sobel_HtoD_ms,T_Sobel_DtoH_ms,T_Resize_HtoD_ms,T_Resize_DtoH_ms,"
+                 << "T_Total_ms,Throughput_MPps,Herramienta\n";
         }
         std::string dims = std::to_string(width) + "x" + std::to_string(height);
         for (int i = 0; i < repeticiones; ++i) {
-            // Notar el campo "Dinamico_API" que reemplaza al antiguo tamaño estático de bloque
+            float t_gray_h = t_gray[i].hToD_ms;
+            float t_gray_k = t_gray[i].kernel_ms;
+            float t_gray_d = t_gray[i].dToH_ms;
+            float t_blur_h = t_blur[i].hToD_ms;
+            float t_blur_k = t_blur[i].kernel_ms;
+            float t_blur_d = t_blur[i].dToH_ms;
+            float t_sob_h = t_sobel[i].hToD_ms;
+            float t_sob_k = t_sobel[i].kernel_ms;
+            float t_sob_d = t_sobel[i].dToH_ms;
+            float t_res_h = t_resize[i].hToD_ms;
+            float t_res_k = t_resize[i].kernel_ms;
+            float t_res_d = t_resize[i].dToH_ms;
+            float t_total = t_gray[i].total_ms + t_blur[i].total_ms
+                          + t_sobel[i].total_ms + t_resize[i].total_ms;
+
+            double mpps = (pixels / 1.0e6) / (t_gray_k + t_blur_k + t_sob_k + t_res_k) * 1000.0;
+
             file << "CUDA_Clasico," << instance << "," << fs::path(input).filename().string() << ","
                  << dims << "," << kernelSize << "," << scale << "," << "Dinamico_API," << (i + 1) << ","
-                 << tiempos_gray[i] << "," << tiempos_blur[i] << "," << tiempos_sobel[i] << "," 
-                 << tiempos_resize[i] << "," << tiempos_totales[i] << ",CUDA_Events\n";
+                 << t_gray_k << "," << t_blur_k << "," << t_sob_k << "," << t_res_k << ","
+                 << t_gray_h << "," << t_gray_d << "," << t_blur_h << "," << t_blur_d << ","
+                 << t_sob_h << "," << t_sob_d << "," << t_res_h << "," << t_res_d << ","
+                 << t_total << "," << mpps << ",CUDA_Events\n";
         }
         file.close();
     } else {
         std::cerr << "Error al abrir el archivo CSV para guardar los resultados.\n";
     }
 
-    // --- GUARDADO DE IMÁGENES ---
     std::string newName;
     bool save;
 
