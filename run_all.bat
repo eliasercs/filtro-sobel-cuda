@@ -12,6 +12,8 @@ set "RES=%ROOT%results"
 
 if exist "%RES%\resultados.csv" del /q "%RES%\resultados.csv"
 
+cd /d "%SRC%"
+
 echo === CPU secuencial ===
 for %%I in (%INSTANCES%) do (
   for %%K in (%KERNELS%) do (

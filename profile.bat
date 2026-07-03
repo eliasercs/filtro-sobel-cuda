@@ -22,11 +22,12 @@ cd /d "%BUILD%"
 "%NSYS_EXE%" profile --output="%PERF_DIR%\nsys_%INSTANCE%_cuda" --force-overwrite=true "cuda.exe" --instance=%INSTANCE% --kernel-size=%KERNEL% --scale=%SCALE%
 if errorlevel 1 echo [nsys] fallo, continuando...
 
-cd /d "%BUILD%"
 echo.
 echo === Profiling con Nsight Compute ===
 "%NCU_EXE%" --set full --target-processes all --export "%PERF_DIR%\ncu_%INSTANCE%_cuda" "cuda.exe" --instance=%INSTANCE% --kernel-size=%KERNEL% --scale=%SCALE%
 if errorlevel 1 echo [ncu] fallo, continuando...
+
+if exist "%ROOT%results\resultados.csv" del /q "%ROOT%results\resultados.csv"
 
 cd /d "%ROOT%"
 echo.

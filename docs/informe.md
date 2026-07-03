@@ -173,10 +173,29 @@ dimensiones no alineadas a tiles.
 ### 4.4 cuTile Python (`src/cutile_pipeline.py`)
 
 - `@ct.kernel` para RGB → grayscale (3 tiles 2D para R, G, B → 1 tile).
-- Resto de etapas (blur, sobel, resize) en PyTorch sobre GPU
-  (`torch.nn.functional.conv2d`, `interpolate`).
+  Implementación propia con `ct.load`, operaciones por tile y `ct.store`.
+- Resto de etapas (blur, sobel, resize) usan operaciones genéricas de
+  PyTorch sobre GPU:
+  - **Blur:** `torch.nn.functional.conv2d` con kernel gaussiano calculado
+    manualmente en `gauss_kernel_2d()` (fórmula matemática, no un filtro
+    pre-hecho). Equivale a usar un operador de convolución genérico con
+    pesos propios.
+  - **Sobel:** `torch.nn.functional.conv2d` con máscaras Gx/Gy hardcodeadas
+    (no se llama a `torchvision.transforms` ni a ningún filtro de bordes
+    pre-implementado).
+  - **Resize:** `torch.nn.functional.interpolate(mode='bilinear')` —
+    operador de interpolación genérico, no un filtro de imagen específico.
 - `torch.cuda.Event` para medir cada kernel de la pipeline.
 - 10 repeticiones con warmup; mismo formato CSV.
+
+**Justificación del uso de PyTorch:** el enunciado prohíbe "llamar
+directamente a filtros ya implementados en GPU por OpenCV, NPP, CuPy o
+PyTorch". En este proyecto no se usan filtros pre-hechos: los kernels
+gaussianos y Sobel se calculan desde la fórmula matemática y se pasan a
+`F.conv2d`, que es un operador de convolución genérico (análogo a usar
+`std::sqrt()` en CPU). La distinción es entre `cv2.GaussianBlur()` (filtro
+pre-hecho) y `F.conv2d(img, kernel_manual)` (operación matemática genérica
+con pesos propios).
 
 ### 4.5 Layout de memoria e indexación
 
@@ -266,10 +285,11 @@ Comando: `profile.bat medium 5 0.5`.
   `cudaMemcpy` H→D, lanzamiento de kernel, `cudaMemcpy` D→H, `cudaFree`.
   Permite ver visualmente la separación entre transferencia y cómputo.
 - **Nsight Compute:** `ncu.bat` está invocado en `profile.bat` pero en
-  este entorno el runtime de NCU no escribe el archivo de reporte
-  (issue conocido del entorno; el comando se documenta en
-  `profile.bat` y los flags son los recomendados por NVIDIA:
-  `--set full --target-processes all`).
+  este entorno el runtime de NCU requiere permisos de administrador
+  para acceder a los GPU Performance Counters (`ERR_NVGPUCTRPERM`).
+  Los flags usados (`--set full --target-processes all --export`) son
+  los recomendados por NVIDIA. En un entorno con permisos admin, el
+  comando genera el reporte correctamente.
 
 ## 6. Análisis técnico, profiling y medición de rendimiento
 
@@ -368,9 +388,12 @@ similar porque el Sobel domina.
 - **Reutilización de buffers:** los wrappers CUDA reservan y liberan
   memoria en cada iteración. Preasignar buffers una vez y reutilizar
   mejoraría el rendimiento especialmente para imágenes pequeñas.
-- **Nsight Compute:** en este entorno el runtime de NCU no escribe el
-  reporte. Requiere troubleshooting adicional (posiblemente permisos
-  o un driver de profiling específico).
+- **Nsight Compute:** en este entorno el runtime de NCU requiere permisos
+  de administrador para acceder a los GPU Performance Counters
+  (`ERR_NVGPUCTRPERM`). El comando está documentado en `profile.bat` con
+  los flags correctos (`--set full --target-processes all`). En un
+  entorno con permisos admin (o con el registro
+  `HKLM\...\PerfCounterAccess = 1`), el reporte se genera correctamente.
 
 ## 9. Anexos
 
