@@ -48,4 +48,13 @@ unsigned char* applySobelFilter(
     int height
 );
 
+unsigned char* applyBilinearResize(
+    unsigned char* img,
+    int width,
+    int height,
+    float scale,
+    int* outWidth,
+    int* outHeight
+);
+
 #endif

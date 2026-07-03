@@ -5,7 +5,7 @@
 
 namespace fs = std::filesystem;
 
-int processImage(const char* input, const char *output, int kernelSize) {
+int processImage(const char* input, const char *output, int kernelSize, float scale) {
     int width;
     int height;
     int channels;
@@ -41,12 +41,6 @@ int processImage(const char* input, const char *output, int kernelSize) {
         std::cout << "Error al guardar la imagen en escala de grises." << std::endl;
     }
 
-    /*
-    A nivel de diseño, se calcula sigma o la desviación estándar automáticamente
-    según el tamaño del kernel. Se eligió sigma de forma que el radio del kernel 
-    abarque aproximadamente tres desviaciones estándar de la distribución gaussiana.
-    Esta decisión es temporal
-    */
     float sigma = (kernelSize - 1)/6.0f;
 
     unsigned char* blur = applyGaussianBlur(
@@ -86,19 +80,47 @@ int processImage(const char* input, const char *output, int kernelSize) {
         std::cout << "Error al guardar la imagen con filtro de Sobel." << std::endl;
     }
 
+    int outWidth = width;
+    int outHeight = height;
+    unsigned char* resized = applyBilinearResize(
+        sobel, width, height, scale, &outWidth, &outHeight
+    );
+
     delete[] sobel;
+
+    if (resized != nullptr) {
+        new_name = ( route.parent_path() /
+            (route.stem().string() + "_resize_s" + std::to_string(scale) +
+             "_to_" + std::to_string(outWidth) + "x" + std::to_string(outHeight) +
+        route.extension().string())).string();
+
+        save = saveImage(new_name.c_str(), resized, outWidth, outHeight);
+
+        if (save) {
+            std::cout << "Imagen redimensionada guardada correctamente "
+                      << "(" << outWidth << "x" << outHeight << ")." << std::endl;
+        } else {
+            std::cout << "Error al guardar la imagen redimensionada." << std::endl;
+        }
+
+        delete[] resized;
+    } else {
+        std::cout << "Resize omitido (factor invalido)." << std::endl;
+    }
 
     return 0;
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::cout << "Uso: programa --instance=<small|medium|large> --kernel-size=<kernel_size\n";
+    if (argc < 3) {
+        std::cout << "Uso: programa --instance=<small|medium|large|no-divisible> "
+                     "--kernel-size=<kernel_size> [--scale=<factor>]\n";
         return 1;
     }
 
     std::string instance;
     int kernelSize = 0;
+    float scale = 1.0f;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -107,6 +129,8 @@ int main(int argc, char** argv) {
             instance = arg.substr(11);
         } else if (arg.rfind("--kernel-size=", 0) == 0) {
             kernelSize = std::stoi(arg.substr(14));
+        } else if (arg.rfind("--scale=", 0) == 0) {
+            scale = std::stof(arg.substr(8));
         } else {
             std::cout << "Argumento desconocido: " << arg << std::endl;
             return 1;
@@ -120,6 +144,11 @@ int main(int argc, char** argv) {
 
     if (kernelSize < 3 || kernelSize % 2 == 0) {
         std::cout << "El tamaño del kernel debe ser impar y mayor o igual a 3." << std::endl;
+        return 1;
+    }
+
+    if (scale <= 0.0f) {
+        std::cout << "El factor de escala debe ser mayor a 0." << std::endl;
         return 1;
     }
 
@@ -155,8 +184,7 @@ int main(int argc, char** argv) {
                     fs::path(dirOutput) / file.path().filename()
                 ).string();
 
-                // Procesar la imagen
-                processImage(fileInput.c_str(), fileOuput.c_str(), kernelSize);
+                processImage(fileInput.c_str(), fileOuput.c_str(), kernelSize, scale);
             }
     }
 

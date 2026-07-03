@@ -1,0 +1,7 @@
+results/
+src/*.exe
+src/*.o
+src/*.obj
+*.pdb
+build/
+.vs/
