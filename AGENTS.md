@@ -74,13 +74,15 @@ filtro-sobel-cuda/
 │   ├── tile_kernels.hpp            # API pública CUDA Tile C++
 │   ├── tile_kernels.cu             # `__tile_global__` + SIMT, `-enable-tile`
 │   ├── main_tile.cpp               # CLI versión CUDA Tile C++
+│   ├── cutile_pipeline.py          # etapa complementaria cuTile Python
 │   ├── stb_image.h
 │   └── stb_image_write.h
 ├── build/                          # binarios compilados (gitignored)
 └── results/                        # imágenes de salida y CSV (gitignored)
     ├── secuencial/<instancia>/     # salidas CPU
     ├── cuda/<instancia>/           # salidas CUDA
-    └── tile/<instancia>/           # salidas CUDA Tile C++
+    ├── tile/<instancia>/           # salidas CUDA Tile C++
+    └── cutile_python/<instancia>/  # salidas etapa cuTile Python
 ```
 
 ## 5. Convenciones del código
@@ -109,7 +111,7 @@ filtro-sobel-cuda/
 | Gaussian blur CUDA Tile C++ | ⚠️ | `simtGaussianBlurKernel` (mismo algoritmo que clásico, en `.cu` con `-enable-tile`) |
 | Sobel CUDA Tile C++ | ⚠️ | `simtSobelKernel` (mismo algoritmo que clásico) |
 | Resize bilineal CUDA Tile C++ | ⚠️ | `simtBilinearResizeKernel` (mismo algoritmo que clásico) |
-| Cualquier etapa en cuTile Python | ❌ | — |
+| Cualquier etapa en cuTile Python | ✅ | `src/cutile_pipeline.py::rgb_to_gray_kernel` (RGB → luminancia) |
 | CSV de resultados | ❌ | — |
 | Profiling Nsight | ❌ | — |
 | ≥10 repeticiones por config | ❌ | — |
@@ -147,6 +149,10 @@ make
 # Ejecutar CUDA Tile C++ (compilado con -enable-tile -std=c++20)
 ./build/tile.exe --instance=small --kernel-size=5 --scale=0.5
 ./build/tile.exe --instance=large --kernel-size=9 --scale=1.75
+
+# Ejecutar etapa cuTile Python (RGB -> luminancia)
+py -3.10 src/cutile_pipeline.py --instance=small
+py -3.10 src/cutile_pipeline.py --instance=large
 
 # Perfilado (cuando se habilite la fase de medición)
 nsys profile -o results/perf/report ./build/cuda.exe --instance=small --kernel-size=5

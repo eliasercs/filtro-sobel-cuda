@@ -51,10 +51,13 @@
 
 | # | Tarea | Estado | Detalle |
 |---|-------|--------|---------|
-| A.4.1 | Entorno cuTile Python funcional | ❌ | Dependencia a instalar |
-| A.4.2 | Al menos una etapa (sugerida: Sobel o luminancia) | ❌ | |
-| A.4.3 | Comparación contra CPU/CUDA clásico/CUDA Tile | ❌ | |
-| A.4.4 | Documentación de entrada/salida, arreglos GPU y transferencias | ❌ | |
+| A.4.1 | Entorno cuTile Python funcional | ✅ | `cuda.tile` 1.4.0 instalado; `torch 2.12.1+cu130` para tensores GPU |
+| A.4.2 | Etapa implementada: RGB → luminancia | ✅ | `src/cutile_pipeline.py::rgb_to_gray_kernel` (kernel cuTile) |
+| A.4.3 | Arreglos GPU y transferencias | ✅ | 3 tensores 2D (R, G, B) en GPU, salida 2D; `PaddingMode.ZERO` para bordes |
+| A.4.4 | Tile size 16×16 documentado | ✅ | Constante `TILE=16` |
+| A.4.5 | Comparación contra CPU y CUDA | ✅ | MAE ≤ 0.005 y MaxDiff=1 en las 4 instancias |
+| A.4.6 | Validado en small/medium/large/no-divisible | ✅ | Salidas en `results/cutile_python/<instancia>/` |
+| A.4.7 | Limitación documentada: solo grayscale (stencils no encajan en cuTile actual) | ✅ | Mismo problema que Tile C++; ver TRACKING.md G |
 
 ---
 
@@ -131,7 +134,7 @@
 | E.2.3 | Referencia CPU secuencial y validación de precisión | 10 % | ✅ | CPU y CUDA validadas numéricamente (MAE ≤ 0.01 gray/blur, ≤ 0.07 sobel/resize) |
 | E.2.4 | Implementación CUDA C++ clásica sin Tile | 15 % | ✅ | 4 kernels, memoria, transferencias, bordes, validación MAE |
 | E.2.5 | Implementación CUDA Tile C++ | 20 % | ⚠️ | Toolchain (`-enable-tile -std=c++20`) y tile kernel (`tileIdentityKernel`) operativos; 4 etapas en SIMT dentro de `-enable-tile` por limitaciones del API Tile C++ actual (stencils con acceso a vecinos no soportados de forma práctica) |
-| E.2.6 | Etapa complementaria en cuTile Python | 10 % | ❌ | |
+| E.2.6 | Etapa complementaria en cuTile Python | 10 % | ✅ | Kernel `@ct.kernel` para RGB→luminancia en `src/cutile_pipeline.py`; validado vs CPU con MAE ≤ 0.005 en las 4 instancias |
 | E.2.7 | Implementación propia de kernels (no usar OpenCV/NPP/CuPy/PyTorch) | 5 % | ✅ | `stb_image` solo para I/O |
 | E.2.8 | Manejo de memoria, datos, bordes y errores CUDA | 10 % | ⚠️ | `CUDA_CHECK` + clamp en kernels; falta documentar layout/transferencias en el informe |
 | E.2.9 | Medición de rendimiento y profiling integrado | 10 % | ❌ | |
@@ -144,8 +147,8 @@
 1. ~~**B.1** Poblar `data/medium/` y `data/large/`.~~ ✅ Completado
 2. ~~**A.1.5** Implementar resize bilineal CPU.~~ ✅ Completado
 3. ~~**A.2.x** CUDA C++ clásico.~~ ✅ Completado
-4. ~~**A.3.x** CUDA Tile C++.~~ ✅ Completado (toolchain verificado; kernels SIMT en `.cu` con `-enable-tile`)
-5. **A.4.x** cuTile Python para al menos una etapa.
+4. ~~**A.3.x** CUDA Tile C++.~~ ✅ Completado
+5. ~~**A.4.x** cuTile Python.~~ ✅ Completado (etapa grayscale con `@ct.kernel`)
 6. **B.4 + C.1-C.12** Orquestador de experimentos: ≥10 repeticiones, CSV, CUDA Events, Nsight.
 7. **E.1.2** Documentar en el informe los fundamentos matemáticos completos.
 8. **D.8** Redactar informe en PDF siguiendo la pauta 10.
