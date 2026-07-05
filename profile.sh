@@ -20,6 +20,9 @@ echo "=== Profiling con Nsight Compute ==="
 ncu --set full --target-processes all --export "$PERF_DIR/ncu_${INSTANCE}_cuda" \
     ./cuda --instance="$INSTANCE" --kernel-size="$KERNEL" --scale="$SCALE" || echo "[ncu] fallo, continuando..."
 
+if [ -f "$ROOT/results/resultados_full.csv" ]; then
+    cp "$ROOT/results/resultados_full.csv" "$ROOT/results/resultados_full_pre_profile.csv"
+fi
 rm -f "$ROOT/results/resultados.csv"
 
 cd "$ROOT"

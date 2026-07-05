@@ -7,41 +7,54 @@ desenfoque gaussiano, operador de Sobel y redimensionamiento bilineal.
 
 ## 1. Requisitos
 
-- **CUDA Toolkit 13.x** (probado con 13.3) con `nvcc` y `cl.exe` (MSVC).
+- **CUDA Toolkit 13.x** (probado con 13.3) con `nvcc` y `cl.exe` (MSVC) en Windows,
+  o `g++` en Linux.
 - **GPU NVIDIA** con compute capability ≥ 8.0 (probado en RTX 3060, sm_86).
 - **Python 3.10+** con `pip`.
-- **GNU Make** (opcional) o usar `build.bat` directamente.
+- **GNU Make** (opcional) o usar `build.bat` (Windows) / `build.sh` (Linux).
 
 Dependencias Python:
 
 ```bash
-py -3.10 -m pip install --upgrade pip
-py -3.10 -m pip install Pillow numpy
-py -3.10 -m pip install cuda.tile
+# Windows
+py -3.10 -m pip install Pillow numpy cuda.tile
 py -3.10 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
+
+# Linux
+python3 -m pip install Pillow numpy cuda.tile
+python3 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
 ## 2. Compilación
 
-Con `Makefile` (desde la raíz del repositorio):
-
-```bash
-make
-```
-
-O con `build.bat` en Windows:
+### Windows
 
 ```bat
 build.bat
 ```
 
-Ambos producen tres binarios en `build/`:
+### Linux
+
+```bash
+./build.sh
+```
+
+### Cross-platform (Make)
+
+```bash
+make
+```
+
+En Windows el Makefile usa `-ccbin` para localizar `cl.exe`. En Linux ese flag
+se omite automáticamente y `nvcc` usa `g++`.
+
+Los tres métodos producen los mismos binarios en `build/`:
 
 | Binario           | Etapas        | Toolchain                 |
 |-------------------|---------------|---------------------------|
-| `secuencial.exe`  | CPU           | `nvcc -std=c++17`         |
-| `cuda.exe`        | GPU SIMT      | `nvcc -std=c++17`         |
-| `tile.exe`        | GPU + `-enable-tile` | `nvcc -std=c++20 -enable-tile` |
+| `secuencial` / `secuencial.exe` | CPU     | `nvcc -std=c++17`         |
+| `cuda` / `cuda.exe`             | GPU SIMT | `nvcc -std=c++17`         |
+| `tile` / `tile.exe`             | GPU + `-enable-tile` | `nvcc -std=c++20 -enable-tile` |
 
 El flag `-arch=native` se usa para detectar la arquitectura de la GPU local.
 
@@ -64,25 +77,42 @@ Todas las versiones comparten la misma CLI:
 ### Ejemplos
 
 ```bash
+# Windows
 build\secuencial.exe --instance=small   --kernel-size=5  --scale=0.5
 build\cuda.exe       --instance=medium  --kernel-size=9  --scale=1.75
 build\tile.exe       --instance=large   --kernel-size=5  --scale=1.0
 py -3.10 src\cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
+
+# Linux
+build/secuencial --instance=small   --kernel-size=5  --scale=0.5
+build/cuda       --instance=medium  --kernel-size=9  --scale=1.75
+build/tile       --instance=large   --kernel-size=5  --scale=1.0
+python3 src/cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 ```
 
 ### Ejecución batch (4 versiones × 4 instancias × 2 kernels × 2 escalas)
 
 ```bat
+:: Windows
 run_all.bat
 ```
 
-Esto pobla `results/resultados.csv` con 320 filas (4 versiones × 4 × 2 × 2 × 10 reps)
+```bash
+# Linux
+./run_all.sh
+```
+
+Esto pobla `results/resultados.csv` con 640 filas (4 versiones × 4 × 2 × 2 × 10 reps)
 más la cabecera.
 
 ## 4. Profiling con Nsight
 
-```bat
+```bash
+# Windows
 profile.bat medium 5 0.5
+
+# Linux
+./profile.sh medium 5 0.5
 ```
 
 Genera reportes en `results/perf/`:
@@ -92,6 +122,10 @@ Genera reportes en `results/perf/`:
 - `ncu_<instance>_cuda.ncu-rep` — métricas por kernel: occupancy, memoria,
   instrucciones (Nsight Compute 2026.2.0).
 
+> **Nota:** Nsight Compute requiere permisos de administrador para acceder a
+> los GPU Performance Counters. En Windows ejecutar PowerShell como administrador;
+> en Linux configurar `sudo ncu ...` o habilitar el registro de performance counters.
+
 ## 5. Estructura del proyecto
 
 ```
@@ -99,10 +133,13 @@ filtro-sobel-cuda/
 ├── AGENTS.md                       # contexto para subagentes
 ├── TRACKING.md                     # checklist contra la rúbrica
 ├── README.md                       # este archivo
-├── Makefile                        # build (secuencial + cuda + tile)
+├── Makefile                        # build cross-platform (make)
 ├── build.bat                       # build en Windows
-├── run_all.bat                     # ejecutar las 4 versiones
-├── profile.bat                     # invocar Nsight
+├── build.sh                        # build en Linux
+├── run_all.bat                     # ejecutar las 4 versiones (Windows)
+├── run_all.sh                      # ejecutar las 4 versiones (Linux)
+├── profile.bat                     # invocar Nsight (Windows)
+├── profile.sh                      # invocar Nsight (Linux)
 ├── Actividad_4_INFO1195_2026_Actualizado.pdf
 ├── data/                           # imágenes de entrada
 │   ├── small/pistola.png           # 512×512

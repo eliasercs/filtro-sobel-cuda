@@ -29,6 +29,8 @@ def parse_inline(text):
         if p.startswith('`') and p.endswith('`'):
             out.append('<font face="Courier">' + p[1:-1] + '</font>')
         else:
+            p = re.sub(r'\$\$([^$]+)\$\$', r'<i>\1</i>', p)
+            p = re.sub(r'\$([^$]+)\$', r'<i>\1</i>', p)
             p = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', p)
             p = re.sub(r'(?<![*\w])\*([^*\n]+)\*(?![*\w])', r'<i>\1</i>', p)
             out.append(p)
