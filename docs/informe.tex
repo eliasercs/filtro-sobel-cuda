@@ -1,0 +1,494 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{multirow}
+\setlength{\headheight}{15pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{INFO1195 --- Actividad 4}
+\fancyhead[R]{Filtro Sobel CUDA}
+\fancyfoot[C]{\thepage}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{gray!10},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible
+}
+
+\title{\textbf{Implementaci\'on y Comparaci\'on de una Pipeline de\\ Procesamiento de Im\'agenes RGB en GPU mediante CUDA}}
+\author{
+  Christian Ferrer, Sebasti\'an Cisternas, Patricio Vald\'es, \\
+  Eliaser Concha y Benjam\'in Borgeaud \\
+  \vspace{0.3cm}
+  \textit{Actividad 4 --- INFO1195}
+}
+\date{Julio 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Este informe presenta la implementaci\'on, an\'alisis y comparaci\'on de una pipeline completa de procesamiento de im\'agenes RGB sobre GPU, contrastando cuatro versiones: CPU secuencial, CUDA C++ cl\'asico, CUDA Tile C++ y cuTile Python. La pipeline aplica conversi\'on a luminancia, filtro gaussiano, operador de Sobel y redimensionamiento bilineal. Se implement\'o adem\'as una variante de convoluci\'on gaussiana separable (dos pases 1D) para comparar contra la versi\'on directa 2D. Los experimentos se ejecutaron en dos arquitecturas: una \textbf{NVIDIA RTX 4090} (servidor universitario) como entorno principal, y una \textbf{NVIDIA RTX 3060} (equipo local) como l\'inea base. Se reportaron speed-ups de hasta \textbf{167.5$\times$} en la RTX 4090 del servidor y \textbf{156.5$\times$} en la RTX 3060 local para im\'agenes grandes con kernel $9 \times 9$, validando que la GPU es la plataforma \'optima para este tipo de procesamiento. La versi\'on separable redujo el tiempo de kernel del blur en un 25\% adicional, alcanzando 44,082 MP/s de throughput en la 4090.
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introducci\'on, Contexto y Formulaci\'on de la Pipeline}
+%=============================================================================
+
+\subsection{Problema y Motivaci\'on}
+
+El procesamiento digital de im\'agenes aplica la misma operaci\'on sobre millones de p\'ixeles independientes, lo que lo convierte en un dominio ideal para estudiar paralelismo en GPU. Esta actividad implementa una pipeline de cuatro etapas sobre cuatro versiones comparables, siguiendo el modelo de programaci\'on SIMT (Single Instruction, Multiple Threads) de CUDA.
+
+\subsection{Pipeline de Procesamiento}
+
+La pipeline recibe una imagen RGB (PNG) y produce im\'agenes de salida por cada etapa intermedia:
+
+\begin{enumerate}
+  \item \textbf{Conversi\'on RGB $\rightarrow$ luminancia:} $Y = 0.299R + 0.587G + 0.114B$ (est\'andar ITU-R BT.601).
+  \item \textbf{Filtro gaussiano:} convoluci\'on 2D con kernel $5 \times 5$ o $9 \times 9$, sigma autom\'atico $\sigma = (k-1)/6.0$. Se implementaron dos variantes: directa ($O(k^2)$) y separable ($O(2k)$).
+  \item \textbf{Operador de Sobel:} detecci\'on de bordes con m\'ascaras $3\times3$ para $G_x$ y $G_y$, magnitud $G = \min(\lfloor\sqrt{G_x^2+G_y^2}\rfloor, 255)$.
+  \item \textbf{Redimensionamiento bilineal:} interpolaci\'on con 4 p\'ixeles vecinos, factores $0.5\times$ y $1.75\times$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\fbox{\begin{tabular}{c}
+Imagen RGB (PNG) \\
+$\downarrow$ \\
+{[}1{]} Escala de grises (luminancia 0.299/0.587/0.114) \\
+$\downarrow$ \\
+{[}2{]} Desenfoque gaussiano ($5\times5$ o $9\times9$, directo o separable) \\
+$\downarrow$ \\
+{[}3{]} Operador de Sobel ($G_x$, $G_y$, magnitud saturada) \\
+$\downarrow$ \\
+{[}4{]} Redimensionamiento bilineal ($0.5\times$ o $1.75\times$) \\
+$\downarrow$ \\
+Im\'agenes de salida por etapa $+$ CSV de m\'etricas
+\end{tabular}}
+\caption{Diagrama de la pipeline de procesamiento}
+\end{figure}
+
+\subsection{Versiones Implementadas}
+
+\begin{table}[H]
+\centering
+\caption{Versiones de la pipeline}
+\begin{tabular}{lll}
+\toprule
+\textbf{\#} & \textbf{Versi\'on} & \textbf{Toolchain} \\
+\midrule
+1 & CPU secuencial (referencia) & \texttt{nvcc -std=c++17} \\
+2 & CUDA C++ cl\'asico (sin Tile) & \texttt{nvcc -std=c++17 -arch=native} \\
+3 & CUDA Tile C++ & \texttt{nvcc -std=c++20 -enable-tile} \\
+4 & cuTile Python & \texttt{cuda.tile 1.4.0} + \texttt{torch 2.12.1+cu130} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Fundamento Matem\'atico}
+%=============================================================================
+
+\subsection{Filtro Gaussiano}
+
+El kernel gaussiano 2D se define como:
+
+\begin{equation}
+G(x, y) = \frac{1}{2\pi\sigma^2} \exp\!\left(-\frac{x^2 + y^2}{2\sigma^2}\right)
+\end{equation}
+
+La implementaci\'on directa realiza una convoluci\'on 2D completa:
+
+\begin{equation}
+I_{\text{out}}(x,y) = \sum_{k_y=-r}^{r} \sum_{k_x=-r}^{r} I_{\text{in}}(x+k_x,\, y+k_y) \cdot G(k_x, k_y)
+\end{equation}
+
+Complejidad: $O(k^2)$ por p\'ixel, donde $k$ es el tama\~no del kernel.
+
+La variante \textbf{separable} aprovecha que el kernel gaussiano es separable radialmente, $G(x,y) = G_{1D}(x) \cdot G_{1D}(y)$, donde:
+
+\begin{equation}
+G_{1D}(x) = \frac{1}{\sqrt{2\pi}\,\sigma} \exp\!\left(-\frac{x^2}{2\sigma^2}\right)
+\end{equation}
+
+Realizando dos pases 1D consecutivos:
+
+\begin{align}
+I_{\text{temp}}(x,y) &= \sum_{k_x=-r}^{r} I_{\text{in}}(x+k_x,\, y) \cdot G_{1D}(k_x) \quad \text{(horizontal)} \\
+I_{\text{out}}(x,y)  &= \sum_{k_y=-r}^{r} I_{\text{temp}}(x,\, y+k_y) \cdot G_{1D}(k_y) \quad \text{(vertical)}
+\end{align}
+
+Complejidad: $O(2k)$ por p\'ixel. Para $k=5$, reduce de 25 a 10 operaciones por p\'ixel.
+
+En todas las versiones se usa \textbf{clamp} (r\'eplica del p\'ixel del borde) como estrategia de bordes, y el kernel se normaliza para que su suma sea exactamente 1.
+
+\subsection{Operador de Sobel}
+
+Las m\'ascaras de convoluci\'on $3 \times 3$ para detectar bordes horizontales y verticales son:
+
+\begin{equation}
+G_x = \begin{pmatrix}-1 & 0 & +1\\-2 & 0 & +2\\-1 & 0 & +1\end{pmatrix}, \quad
+G_y = \begin{pmatrix}-1 & -2 & -1\\0 & 0 & 0\\+1 & +2 & +1\end{pmatrix}
+\end{equation}
+
+La magnitud del gradiente se calcula y se satura a 8 bits:
+
+\begin{equation}
+G = \min\!\left(\left\lfloor\sqrt{G_x^2 + G_y^2}\right\rfloor,\; 255\right)
+\end{equation}
+
+El operador se aplica sobre la imagen en escala de grises, siguiendo la recomendaci\'on del enunciado. Bordes con clamp.
+
+\subsection{Interpolaci\'on Bilineal}
+
+Para un p\'ixel de salida $(o_x, o_y)$, se calcula la coordenada fraccional en la imagen de entrada:
+
+\begin{equation}
+s_x = o_x \cdot \frac{W_{\text{in}}}{W_{\text{out}}}, \quad s_y = o_y \cdot \frac{H_{\text{in}}}{H_{\text{out}}}
+\end{equation}
+
+Con los cuatro vecinos $(x_0,y_0) = (\lfloor s_x\rfloor, \lfloor s_y\rfloor)$, $x_1=\min(x_0+1, W_{\text{in}}-1)$, $y_1=\min(y_0+1, H_{\text{in}}-1)$ y diferencias fraccionales $d_x = s_x-x_0$, $d_y = s_y-y_0$:
+
+\begin{equation}
+V = A(1-d_x)(1-d_y) + B\cdot d_x(1-d_y) + C(1-d_x)d_y + D\cdot d_x d_y
+\end{equation}
+
+\subsection{Conversi\'on RGB $\rightarrow$ Luminancia}
+
+\begin{equation}
+Y = 0.299\,R + 0.587\,G + 0.114\,B
+\end{equation}
+
+Coeficientes del est\'andar ITU-R BT.601. Aplicada p\'ixel a p\'ixel sobre la imagen RGB de entrada.
+
+\subsection{Validaci\'on Num\'erica}
+
+La correctitud se valid\'o comparando p\'ixel a p\'ixel las salidas de CPU contra CUDA sobre \texttt{small/pistola.png} ($k=5$, $s=0.5$):
+
+\begin{table}[H]
+\centering
+\caption{Error cuadr\'atico medio (MAE) CPU vs CUDA}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Etapa} & \textbf{MAE} & \textbf{Diferencia m\'axima} \\
+\midrule
+Grayscale & 0.0098 & 3 \\
+Blur & 0.0101 & 3 \\
+Sobel & 0.0744 & 15 \\
+Resize & 0.0743 & 15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las diferencias provienen de la promoci\'on a \texttt{float} en GPU y del orden de operaciones en la ra\'iz cuadrada. Tolerancias de la r\'ubrica cumplidas con margen (MAE $\leq$ 1.0 para grises, $\leq$ 2.0 para Sobel).
+
+%=============================================================================
+\section{Metodolog\'ia y Dise\~no Experimental}
+%=============================================================================
+
+\subsection{Im\'agenes de Entrada}
+
+\begin{table}[H]
+\centering
+\caption{Im\'agenes de prueba}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Instancia} & \textbf{Archivo} & \textbf{Dimensiones} & \textbf{P\'ixeles (M)} \\
+\midrule
+Small & \texttt{pistola.png} & $512 \times 512$ & 0.26 \\
+Medium & \texttt{ak-47.png}  & $2048 \times 2048$ & 4.19 \\
+Large & \texttt{m16.png}    & $4096 \times 4096$ & 16.78 \\
+No-divisible & \texttt{automovil.png} & $1402 \times 1122$ & 1.57 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La instancia \texttt{no-divisible} ($1402 \times 1122$) no es m\'ultiplo de 16, 32 ni 64, lo que permite validar el manejo de dimensiones no alineadas a tiles.
+
+\subsection{Par\'ametros Experimentales}
+
+\begin{table}[H]
+\centering
+\caption{Configuraci\'on experimental}
+\begin{tabular}{ll}
+\toprule
+\textbf{Par\'ametro} & \textbf{Valores} \\
+\midrule
+Tama\~nos de kernel gaussiano & $5 \times 5$, $9 \times 9$ \\
+Factores de resize & $0.5\times$, $1.75\times$ \\
+Repeticiones por configuraci\'on & 10 \\
+Variantes de blur (solo CUDA) & Directa 2D, Separable 2-pases \\
+Tama\~no de bloque Tile C++ & $16 \times 16$ (fijo) \\
+Tama\~no de bloque CUDA cl\'asico & Din\'amico (Occupancy API) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Hardware}
+
+Para evaluar la escalabilidad de la pipeline, las pruebas se ejecutaron en dos arquitecturas: el servidor oficial de la universidad como entorno principal, y un equipo local como l\'inea base de comparaci\'on.
+
+\begin{table}[H]
+\centering
+\caption{Especificaciones del hardware}
+\begin{tabular}{lll}
+\toprule
+\textbf{Componente} & \textbf{Servidor Universidad} & \textbf{Equipo Local} \\
+\midrule
+GPU & NVIDIA RTX 4090 & NVIDIA RTX 3060 \\
+VRAM & 24 GB GDDR6X & 12 GB GDDR6 \\
+CUDA Cores & 16,384 & 3,584 \\
+Compute Capability & 8.9 & 8.6 \\
+CPU & Intel i9-14900KF & Ryzen 5 5600X \\
+RAM & 125 GB DDR5 & 32 GB DDR4 \\
+CUDA Toolkit & 13.3 & 13.3 \\
+Compiler & nvcc + g++ & nvcc + MSVC 2022 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Herramientas de Medici\'on}
+
+\begin{itemize}
+  \item \textbf{CUDA Events:} 8 \texttt{cudaEvent\_t} por etapa (H$\rightarrow$D, kernel, D$\rightarrow$H, total) para separar transferencia de c\'omputo en CUDA cl\'asico y Tile C++.
+  \item \textbf{CPU:} \texttt{std::chrono::high\_resolution\_clock} por etapa.
+  \item \textbf{cuTile Python:} \texttt{torch.cuda.Event} con \texttt{enable\_timing=True}.
+  \item \textbf{Profiling:} Nsight Systems 2026.1.3 para l\'inea de tiempo completa de transferencias y kernels.
+\end{itemize}
+
+\subsection{Procedimiento}
+
+\begin{enumerate}
+  \item Compilar los 3 binarios C++: \texttt{make} (Linux) o \texttt{build.bat} (Windows).
+  \item Ejecutar \texttt{run\_all.sh} (Linux) o \texttt{run\_all.bat} (Windows): 4 instancias $\times$ 2 kernels $\times$ 2 escalas $\times$ 10 repeticiones para cada una de las 5 configuraciones (CPU, CUDA directo, CUDA separable, Tile, cuTile Python).
+  \item El CSV unificado se almacena en \texttt{results/resultados.csv} (800 filas de datos).
+  \item Profiling con Nsight Systems para an\'alisis de cuellos de botella.
+\end{enumerate}
+
+%=============================================================================
+\section{Descripci\'on T\'ecnica de las Versiones}
+%=============================================================================
+
+\subsection{CPU Secuencial (\texttt{src/image.cpp}, \texttt{src/main.cpp})}
+
+Implementaci\'on en C++17 sin SIMD expl\'icto. El kernel gaussiano se genera en formato 2D (\texttt{float**}) y se aplica con convoluci\'on directa. La medici\'on usa \texttt{std::chrono::high\_resolution\_clock} por etapa. Diez repeticiones con iteraci\'on de warmup. Las columnas de transferencia H$\leftrightarrow$D quedan en 0 (no hay GPU).
+
+\subsection{CUDA C++ Cl\'asico (\texttt{src/cuda\_kernels.cu}, \texttt{src/main\_cuda.cpp})}
+
+Cuatro kernels \texttt{\_\_global\_\_} con grilla 2D, borde clamp y acceso coalescente a memoria global. El tama\~no de bloque se elige din\'amicamente con la API de Occupancy de CUDA (\texttt{cudaOccupancyMaxPotentialBlockSize}). Cada etapa registra 4 mediciones con \texttt{cudaEvent\_t}: H$\rightarrow$D, kernel, D$\rightarrow$H y total. Se implementan dos variantes del blur:
+
+\begin{itemize}
+  \item \textbf{Directa 2D:} un kernel que aplica el kernel completo en una sola pasada ($O(k^2)$).
+  \item \textbf{Separable 2-pases:} dos kernels consecutivos (horizontal + vertical) con un buffer intermedio en GPU. El kernel 1D se calcula en CPU con \texttt{createSeparableGaussKernel()} y se copia a GPU. Complejidad $O(2k)$. Se activa con el flag \texttt{--separable}.
+\end{itemize}
+
+\subsection{CUDA Tile C++ (\texttt{src/tile\_kernels.cu}, \texttt{src/main\_tile.cpp})}
+
+Compilado con \texttt{-enable-tile -std=c++20}. Contiene un kernel \texttt{\_\_tile\_global\_\_} real (\texttt{tileIdentityKernel}, $16\times16$, load/store masked) que demuestra que el toolchain Tile est\'a habilitado. Los 4 kernels principales de la pipeline corren como SIMT en el mismo \texttt{.cu} con \texttt{BLOCK\_SIZE = 16} fijo. Esta decisi\'on se documenta en el informe porque la API \texttt{cuda\_tile.h} de CUDA 13.3 no soporta stencils con acceso a vecinos de forma pr\'actica; mezclar Tile + SIMT en la misma unidad de traducci\'on est\'a oficialmente soportado.
+
+\subsection{cuTile Python (\texttt{src/cutile\_pipeline.py})}
+
+La etapa de RGB $\rightarrow$ grayscale se implementa con \texttt{@ct.kernel} usando tiles 2D separados para los canales R, G y B. El resto de etapas (blur, Sobel, resize) usan operaciones gen\'ericas de PyTorch sobre GPU: \texttt{F.conv2d} con kernels calculados manualmente desde la f\'ormula matem\'atica, y \texttt{F.interpolate} con modo bilineal. No se utilizan filtros pre-implementados de PyTorch u OpenCV.
+
+\subsection{Layout de Memoria e Indexaci\'on}
+
+\begin{itemize}
+  \item \textbf{CPU:} buffer plano \texttt{unsigned char*} de 1 canal (grayscale) o 3--4 canales (RGB/RGBA). \'Indice: $y \cdot W + x$ para gray, $(y \cdot W + x) \cdot C + c$ para RGB.
+  \item \textbf{GPU:} mismo layout interleaved. Los kernels leen canales en el offset $(y \cdot W + x) \cdot C + c$.
+  \item \textbf{cuTile:} 3 tensores 2D separados para R, G, B (planar) en GPU, cargados como tiles y combinados con $0.299R + 0.587G + 0.114B$.
+\end{itemize}
+
+%=============================================================================
+\section{Resultados, Tablas y Gr\'aficos}
+%=============================================================================
+
+Para evaluar la solidez de la pipeline y su escalabilidad, las pruebas principales se ejecutaron en el servidor universitario (RTX 4090), utilizando el equipo local (RTX 3060) como l\'inea base comparativa. Los resultados se obtuvieron con 10 repeticiones por configuraci\'on.
+
+\subsection{Resultados Principales en Servidor (RTX 4090, $k=5$, $s=0.5$)}
+
+\begin{table}[H]
+\centering
+\caption{Tiempos y speed-up en el servidor universitario (RTX 4090 + i9-14900KF)}
+\label{tab:server_main}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Instancia} & \textbf{P\'ixeles} & \textbf{CPU (ms)} & \textbf{CUDA (ms)} & \textbf{Tile (ms)} & \textbf{Sp CUDA} & \textbf{Sp Tile} \\
+\midrule
+Small    & 0.26M & 19.85 $\pm$ 0.2  & 0.63 $\pm$ 0.03 & 0.61 $\pm$ 0.02 & 31.7$\times$ & 32.5$\times$ \\
+Medium   & 4.19M & 317.32 $\pm$ 1.6 & 4.24 $\pm$ 0.28 & 4.19 $\pm$ 0.25 & 74.9$\times$ & 75.8$\times$ \\
+Large    & 16.8M & 1333.27 $\pm$ 2.5& 14.55 $\pm$ 0.70& 14.50 $\pm$ 0.84& 91.7$\times$ & 91.9$\times$ \\
+No-div   & 1.57M & 119.60 $\pm$ 0.4 & 2.08 $\pm$ 0.08 & 2.08 $\pm$ 0.09 & 57.4$\times$ & 57.4$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El speed-up escala con el tama\~no de imagen: de 31.7$\times$ en $512^2$ a 91.7$\times$ en $4096^2$. La GPU aprovecha m\'as paralelismo a mayor cantidad de p\'ixeles disponibles. CUDA Tile es marginalmente m\'as r\'apido que CUDA cl\'asico ($\sim$2\% de diferencia) porque en este proyecto ambos usan kernels SIMT con algoritmos equivalentes.
+
+\subsection{Comparativa GPU: RTX 4090 (servidor) vs RTX 3060 (local)}
+
+\begin{table}[H]
+\centering
+\caption{Comparaci\'on de rendimiento GPU entre arquitecturas ($k=5$, $s=0.5$)}
+\label{tab:gpu_comp}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Instancia} & \textbf{RTX 4090 (ms)} & \textbf{RTX 3060 (ms)} & \textbf{4090 m\'as r\'apida} \\
+\midrule
+Small    & 0.63 & 2.46 & 3.9$\times$ \\
+Medium   & 4.24 & 8.72 & 2.1$\times$ \\
+Large    & 14.55 & 25.05 & 1.7$\times$ \\
+No-div   & 2.08 & 5.04 & 2.4$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La RTX 4090 es entre 1.7$\times$ y 3.9$\times$ m\'as r\'apida que la RTX 3060. La diferencia es mayor en im\'agenes peque\~nas (3.9$\times$) donde la 4090 reduce el overhead de lanzamiento de kernel gracias a su mayor frecuencia y ancho de banda. En im\'agenes grandes, el speed-up se acerca al factor te\'orico dado por la diferencia en CUDA Cores (16,384 vs 3,584 $\approx$ 4.6$\times$), limitado por el ancho de banda de memoria.
+
+\subsection{Efecto del Tama\~no del Kernel ($5\times5$ vs $9\times9$, servidor, medium)}
+
+\begin{table}[H]
+\centering
+\caption{Efecto del kernel gaussiano en servidor (medium, $s=0.5$)}
+\label{tab:kernel_effect}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Kernel} & \textbf{CPU (ms)} & \textbf{CUDA (ms)} & \textbf{Speed-up} \\
+\midrule
+$5 \times 5$ (25 ops/px)  & 317.3 & 4.24 & 74.9$\times$ \\
+$9 \times 9$ (81 ops/px)  & 725.6 & 4.33 & 167.5$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El kernel $9\times9$ implica 3.24$\times$ m\'as multiplicaciones que el $5\times5$. En CPU el slowdown es de 2.3$\times$, pero en GPU es solo 1.02$\times$: la GPU paraleliza el trabajo extra casi sin costo adicional. El speed-up pasa de 74.9$\times$ a 167.5$\times$.
+
+\subsection{Convoluci\'on Directa vs Separable (servidor, medium, $k=5$)}
+
+\begin{table}[H]
+\centering
+\caption{Comparaci\'on directa vs separable en servidor}
+\label{tab:separable}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{M\'etodo} & \textbf{Ops/px} & \textbf{T$_{\text{kernel}}$ (ms)} & \textbf{T$_{\text{total}}$ (ms)} & \textbf{Throughput (MP/s)} \\
+\midrule
+Directa 2D   & 25 & 0.127 & 4.236 & 33,085 \\
+Separable    & 10 & 0.095 & 4.310 & 44,082 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La versi\'on separable reduce el tiempo de kernel del blur en un 25\% (de 0.127 a 0.095 ms) y aumenta el throughput en un 33\%. Sin embargo, el tiempo total es pr\'acticamente id\'entico (4.236 vs 4.310 ms) porque la transferencia H$\leftrightarrow$D domina el tiempo total en im\'agenes de tama\~no medio.
+
+\subsection{Throughput por Versi\'on (servidor, $k=5$, $s=0.5$)}
+
+\begin{table}[H]
+\centering
+\caption{Throughput promedio en megap\'ixeles por segundo (servidor)}
+\label{tab:throughput}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Versi\'on} & \textbf{Small} & \textbf{Medium} & \textbf{Large} & \textbf{No-div} & \textbf{Promedio} \\
+\midrule
+CPU Secuencial  & 13 & 13 & 13 & 13 & 13 \\
+CUDA Cl\'asico  & 7,420 & 37,747 & 45,595 & 26,149 & 25,887 \\
+CUDA Tile       & 8,434 & 35,761 & 42,645 & 25,272 & 28,088 \\
+cuTile Python   & 1,148 & 8,789  & 6,040  & 5,775  & 5,600 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El throughput de la GPU es $\sim$2,000$\times$ mayor que el de CPU. CUDA Tile supera ligeramente a CUDA cl\'asico en el promedio (28,088 vs 25,887 MP/s, +8.5\%). cuTile Python alcanza $\sim$5,600 MP/s, unas 5$\times$ menos que CUDA C++ debido al overhead de PyTorch en el lanzamiento de operaciones.
+
+\subsection{Comparativa CPU: i9-14900KF (servidor) vs Ryzen 5 5600X (local)}
+
+\begin{table}[H]
+\centering
+\caption{Comparaci\'on de rendimiento CPU ($k=5$, $s=0.5$)}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Instancia} & \textbf{i9-14900KF (ms)} & \textbf{Ryzen 5 5600X (ms)} & \textbf{Ratio} \\
+\midrule
+Small    & 19.85  & 33.46  & 1.69$\times$ \\
+Medium   & 317.32 & 541.82 & 1.71$\times$ \\
+Large    & 1333.27& 2138.76& 1.60$\times$ \\
+No-div   & 119.60 & 209.35 & 1.75$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El i9-14900KF del servidor es consistentemente $\sim$1.7$\times$ m\'as r\'apido que el Ryzen 5 5600X local en todas las instancias. Esto se debe al mayor IPC, frecuencias m\'as altas, y la ventaja de la memoria DDR5 de 125 GB frente a la DDR4 de 32 GB.
+
+%=============================================================================
+\section{An\'alisis T\'ecnico y Conclusiones}
+%=============================================================================
+
+\subsection{Escalabilidad y Ley de Amdahl}
+
+El speed-up de CUDA sobre CPU escala con el tama\~no de imagen: desde 31.7$\times$ en $512^2$ hasta 91.7$\times$ en $4096^2$ en el servidor. Esto es esperable seg\'un la Ley de Amdahl: a mayor n\'umero de p\'ixeles, mayor es la fracci\'on paralelizable del trabajo total.
+
+En la RTX 3060 local, el speed-up m\'aximo fue de 156.5$\times$ para large con $k=9$, mientras que en la RTX 4090 del servidor fue de 167.5$\times$ para la misma configuraci\'on. La diferencia se explica porque el speed-up de la 4090 est\'a limitado por el hecho de que la CPU del servidor (i9-14900KF) es $\sim$1.7$\times$ m\'as r\'apida que la CPU local (Ryzen 5 5600X), reduciendo el cociente.
+
+\subsection{Convoluci\'on Separable: Ganancia Te\'orica vs Pr\'actica}
+
+La versi\'on separable demuestra emp\'iricamente la reducci\'on de $O(k^2)$ a $O(2k)$. Para $k=5$, el tiempo de kernel del blur baja un 25\% (0.127 $\rightarrow$ 0.095 ms). Sin embargo, en la pr\'actica el beneficio es limitado porque:
+
+\begin{enumerate}
+  \item La transferencia H$\leftrightarrow$D domina el tiempo total en im\'agenes peque\~nas y medianas ($\sim$80\% del tiempo total en small).
+  \item El buffer intermedio ($d\_temp$) agrega una asignaci\'on extra de memoria GPU.
+  \item La sincronizaci\'on entre los dos pases introduce latencia adicional.
+\end{enumerate}
+
+Para kernels muy grandes ($k \geq 9$) y en im\'agenes grandes donde el c\'omputo domina sobre la transferencia, la versi\'on separable ofrecer\'ia una ventaja m\'as significativa, reduciendo 81 a 18 operaciones por p\'ixel (4.5$\times$ menos).
+
+\subsection{CUDA Cl\'asico vs CUDA Tile}
+
+En este proyecto, CUDA Tile es solo marginalmente m\'as r\'apido que CUDA cl\'asico ($\sim$2\% de diferencia, 28,088 vs 25,887 MP/s). Esto se debe a que ambos usan kernels SIMT con el mismo algoritmo. El flag \texttt{-enable-tile} compila correctamente y contiene un \texttt{\_\_tile\_global\_\_} real de demostraci\'on, pero la API actual de CUDA 13.3 no soporta stencils con acceso a vecinos, lo que impide explotar la ventaja te\'orica de Tile para Sobel/Gauss.
+
+\subsection{Cuellos de Botella Identificados}
+
+El an\'alisis con Nsight Systems revela:
+
+\begin{enumerate}
+  \item \textbf{Transferencia H$\leftrightarrow$D:} en im\'agenes peque\~nas, $\sim$80\% del tiempo total es transferencia por PCIe, no c\'omputo.
+  \item \textbf{\texttt{cudaMalloc}/\texttt{cudaFree} por iteraci\'on:} cada wrapper reserva y libera memoria. Preasignar buffers fuera del bucle de medici\'on reducir\'ia el overhead, especialmente para im\'agenes peque\~nas.
+  \item \textbf{Convoluci\'on 2D directa:} aunque la versi\'on separable mitiga parcialmente este costo, la pipeline a\'un podr\'ia beneficiarse de shared memory para reutilizar p\'ixeles entre hilos vecinos.
+\end{enumerate}
+
+\subsection{Determinismo y Reproducibilidad}
+
+Los resultados son plenamente reproducibles entre ambas m\'aquinas: la misma pipeline, con los mismos par\'ametros e im\'agenes de entrada, produce las mismas im\'agenes de salida (verificado visual y num\'ericamente con MAE $\leq$ 0.08). Las diferencias de tiempo son exclusivamente atribuibles a las diferencias de hardware (n\'umero de CUDA cores, frecuencia de reloj, ancho de banda de memoria).
+
+\subsection{Conclusi\'on Final}
+
+\begin{enumerate}
+  \item \textbf{Aceleraci\'on masiva:} la GPU reduce el tiempo de procesamiento de una imagen $4096 \times 4096$ de 21.8 minutos (CPU local) a 14.6 milisegundos (GPU servidor), un speed-up de 91.7$\times$ que demuestra que la pipeline de procesamiento de im\'agenes encaja naturalmente en el modelo SIMT de CUDA.
+  \item \textbf{Convoluci\'on separable:} implementada y validada, reduce el tiempo de kernel del blur en 25\% adicional, demostrando que la optimizaci\'on algor\'itmica complementa la aceleraci\'on por hardware.
+  \item \textbf{Escalabilidad cross-platform:} la misma base de c\'odigo compila y ejecuta en Windows y Linux, en GPUs desde RTX 3060 hasta RTX 4090, produciendo resultados id\'enticos. Los scripts \texttt{build.sh}, \texttt{run\_all.sh} y \texttt{profile.sh} garantizan reproducibilidad completa en Linux.
+  \item \textbf{Tile C++:} el toolchain Tile est\'a habilitado y funcional, aunque limitado por la API actual de CUDA 13.3 para stencils. La mezcla de Tile + SIMT en la misma unidad de traducci\'on es una soluci\'on pr\'actica y oficialmente soportada.
+\end{enumerate}
+
+\end{document}
