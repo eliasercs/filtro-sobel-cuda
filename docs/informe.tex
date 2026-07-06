@@ -16,6 +16,8 @@
 \usepackage{enumitem}
 \usepackage{fancyhdr}
 \usepackage{multirow}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \setlength{\headheight}{15pt}
 
 \pagestyle{fancy}
@@ -311,7 +313,7 @@ Compilado con \texttt{-enable-tile -std=c++20}. Contiene un kernel \texttt{\_\_t
 
 \subsection{cuTile Python (\texttt{src/cutile\_pipeline.py})}
 
-La etapa de RGB $\rightarrow$ grayscale se implementa con \texttt{@ct.kernel} usando tiles 2D separados para los canales R, G y B. El resto de etapas (blur, Sobel, resize) usan operaciones gen\'ericas de PyTorch sobre GPU: \texttt{F.conv2d} con kernels calculados manualmente desde la f\'ormula matem\'atica, y \texttt{F.interpolate} con modo bilineal. No se utilizan filtros pre-implementados de PyTorch u OpenCV.
+La etapa de RGB $\rightarrow$ grayscale se implementa con \texttt{@ct.kernel} usando tiles 2D separados para los canales R, G y B. Los tiles se cargan con \texttt{PaddingMode.ZERO} en los bordes (a diferencia del clamp usado en las dem\'as versiones), pero esto no afecta la salida porque los p\'ixeles de padding no se almacenan. El resto de etapas (blur, Sobel, resize) usan operaciones gen\'ericas de PyTorch sobre GPU: \texttt{F.conv2d} con kernels calculados manualmente desde la f\'ormula matem\'atica, y \texttt{F.interpolate} con modo bilineal. No se utilizan filtros pre-implementados de PyTorch u OpenCV. El padding en blur y Sobel se configura con \texttt{mode='replicate'} (equivalente a clamp).
 
 \subsection{Layout de Memoria e Indexaci\'on}
 
@@ -442,6 +444,116 @@ No-div   & 119.60 & 209.35 & 1.75$\times$ \\
 
 El i9-14900KF del servidor es consistentemente $\sim$1.7$\times$ m\'as r\'apido que el Ryzen 5 5600X local en todas las instancias. Esto se debe al mayor IPC, frecuencias m\'as altas, y la ventaja de la memoria DDR5 de 125 GB frente a la DDR4 de 32 GB.
 
+\subsection{Gr\'aficos Comparativos (Servidor RTX 4090)}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=12pt,
+    width=0.92\textwidth,
+    height=6cm,
+    ylabel={Speed-up ($\times$)},
+    symbolic x coords={Small, Medium, Large, No-div},
+    xtick=data,
+    nodes near coords,
+    nodes near coords align={vertical},
+    ymin=0, ymax=110,
+    legend style={at={(0.5,-0.18)}, anchor=north, legend columns=2},
+    grid=major,
+]
+\addplot[blue!60, fill=blue!30] coordinates {
+    (Small,31.7) (Medium,74.9) (Large,91.7) (No-div,57.4)
+};
+\addplot[red!60, fill=red!30] coordinates {
+    (Small,32.5) (Medium,75.8) (Large,91.9) (No-div,57.4)
+};
+\legend{CUDA Cl\'asico, CUDA Tile}
+\end{axis}
+\end{tikzpicture}
+\caption{Speed-up GPU vs CPU en servidor (RTX 4090, $k=5$, $s=0.5$). El speed-up escala con el tama\~no de imagen. CUDA Tile es $\sim$2\% m\'as r\'apido que CUDA cl\'asico.}
+\label{fig:speedup}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    bar width=18pt,
+    width=0.92\textwidth,
+    height=6cm,
+    ylabel={Throughput (MP/s)},
+    symbolic x coords={CPU, CUDA Clasico, CUDA Tile, cuTile Python},
+    xtick=data,
+    nodes near coords,
+    nodes near coords align={vertical},
+    ymin=0, ymax=35000,
+    legend style={at={(0.5,-0.18)}, anchor=north, legend columns=1},
+    grid=major,
+    point meta=explicit symbolic,
+]
+\addplot[green!50!black, fill=green!30] coordinates {
+    (CPU,13) (CUDA Clasico,25887) (CUDA Tile,28088) (cuTile Python,5600)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Throughput promedio por versi\'on en servidor ($k=5$, $s=0.5$). La GPU supera a la CPU por $\sim$2,000$\times$. cuTile Python es $\sim$5$\times$ m\'as lento que CUDA C++ por overhead de PyTorch.}
+\label{fig:throughput}
+\end{figure}
+
+\subsection{Im\'agenes de Salida y Entregables}
+
+Cada ejecuci\'on de la pipeline genera cuatro im\'agenes PNG por etapa de procesamiento, almacenadas en \texttt{results/<versi\'on>/<instancia>/}:
+
+\begin{itemize}
+  \item \texttt{<imagen>\_gray.png} --- salida de la conversi\'on RGB $\rightarrow$ luminancia.
+  \item \texttt{<imagen>\_blur\_k<K>.png} --- desenfoque gaussiano con kernel $K \times K$.
+  \item \texttt{<imagen>\_sobel\_k<K>.png} --- detecci\'on de bordes de Sobel.
+  \item \texttt{<imagen>\_resize\_s<S>.png} --- redimensionamiento bilineal con factor de escala $S$.
+\end{itemize}
+
+El proyecto incluye adem\'as los siguientes entregables auxiliares:
+
+\begin{itemize}
+  \item \texttt{scripts/generate\_test\_images.py} --- genera im\'agenes sint\'eticas para los 4 tama\~nos en caso de que falten las originales.
+  \item \texttt{scripts/analyze\_csv.py} --- produce tablas resumen de promedios y speed-ups desde el CSV de resultados.
+  \item \texttt{scripts/build\_pdf.py} --- convierte \texttt{docs/informe.md} a PDF usando la biblioteca \texttt{reportlab}.
+  \item \texttt{release.bat} --- empaqueta el repositorio completo en un archivo ZIP de entrega.
+\end{itemize}
+
+\subsection{Formato del CSV de Resultados}
+
+El archivo \texttt{results/resultados.csv} contiene 23 columnas con los datos crudos de cada repetici\'on:
+
+\begin{table}[H]
+\centering
+\caption{Columnas del CSV de resultados}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Columna} & \textbf{Significado} \\
+\midrule
+\texttt{Version} & CPU\_Secuencial, CUDA\_Clasico, CUDA\_Tile, cuTile\_Python \\
+\texttt{Instancia} & small, medium, large, no-divisible \\
+\texttt{Imagen} & nombre del archivo de entrada \\
+\texttt{DimensionesOrig} & $W \times H$ originales \\
+\texttt{KernelSize} & tama\~no del kernel gaussiano (5 \'o 9) \\
+\texttt{Scale} & factor de resize (0.5 \'o 1.75) \\
+\texttt{Bloque} & N/A (CPU), Dinamico\_API (CUDA), 16x16(SIMT\_en\_Tile), 16x16(cuTile) \\
+\texttt{Repeticion} & 1 a 10 \\
+\texttt{T\_\{Gray,Blur,Sobel,Resize\}\_kernel\_ms} & tiempo de kernel por etapa \\
+\texttt{T\_\{...\}\_HtoD\_ms / DtoH\_ms} & tiempo de transferencia por etapa \\
+\texttt{T\_Total\_ms} & suma de 4 etapas (incluye transferencias) \\
+\texttt{Throughput\_MPps} & megap\'ixeles por segundo \\
+\texttt{Herramienta} & chrono, CUDA\_Events, torch.cuda.Event \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El CSV contiene 800 filas de datos: 4 instancias $\times$ 2 kernels $\times$ 2 escalas $\times$ 10 repeticiones $\times$ 5 configuraciones (CPU, CUDA directo, CUDA separable, Tile, cuTile). La I/O de im\'agenes utiliza \texttt{stb\_image.h} / \texttt{stb\_image\_write.h} (single-header libraries de dominio p\'ublico) y Pillow para la versi\'on Python.
+
 %=============================================================================
 \section{An\'alisis T\'ecnico y Conclusiones}
 %=============================================================================
@@ -470,13 +582,36 @@ En este proyecto, CUDA Tile es solo marginalmente m\'as r\'apido que CUDA cl\'as
 
 \subsection{Cuellos de Botella Identificados}
 
-El an\'alisis con Nsight Systems revela:
+El an\'alisis con Nsight Systems 2026.1.3 sobre el binario CUDA cl\'asico (\texttt{medium}, $k=5$, $s=0.5$) revela la siguiente distribuci\'on del tiempo:
+
+\begin{table}[H]
+\centering
+\caption{Distribuci\'on temporal de la pipeline en GPU (Nsight Systems, medium, $k=5$)}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Operaci\'on} & \textbf{Tiempo (ms)} & \textbf{\% del total} \\
+\midrule
+\texttt{cudaMalloc} (4 buffers) & 0.31 & 2.6\% \\
+Transferencia H$\rightarrow$D (datos + kernel) & 2.48 & 21.3\% \\
+Kernels (gray + blur + sobel + resize) & 1.50 & 12.9\% \\
+Transferencia D$\rightarrow$H (resultados) & 3.47 & 29.8\% \\
+\texttt{cudaFree} (4 buffers) & 0.05 & 0.4\% \\
+Overhead de sincronizaci\'on y API & 3.81 & 33.0\% \\
+\midrule
+\textbf{Total} & \textbf{11.62} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las observaciones clave del perfil de Nsight Systems son:
 
 \begin{enumerate}
-  \item \textbf{Transferencia H$\leftrightarrow$D:} en im\'agenes peque\~nas, $\sim$80\% del tiempo total es transferencia por PCIe, no c\'omputo.
-  \item \textbf{\texttt{cudaMalloc}/\texttt{cudaFree} por iteraci\'on:} cada wrapper reserva y libera memoria. Preasignar buffers fuera del bucle de medici\'on reducir\'ia el overhead, especialmente para im\'agenes peque\~nas.
-  \item \textbf{Convoluci\'on 2D directa:} aunque la versi\'on separable mitiga parcialmente este costo, la pipeline a\'un podr\'ia beneficiarse de shared memory para reutilizar p\'ixeles entre hilos vecinos.
+  \item \textbf{Transferencia H$\leftrightarrow$D domina en im\'agenes peque\~nas:} en \texttt{small} ($512^2$), $\sim$80\% del tiempo total es transferencia por PCIe. En \texttt{large} ($4096^2$) la fracci\'on de c\'omputo aumenta al $\sim$40\%.
+  \item \textbf{\texttt{cudaMalloc}/\texttt{cudaFree} por iteraci\'on:} cada wrapper de etapa reserva y libera memoria GPU dentro del bucle de medici\'on. Preasignar buffers una sola vez fuera del bucle reducir\'ia $\sim$0.3 ms de overhead fijo por iteraci\'on, un 3\% del tiempo total.
+  \item \textbf{Convoluci\'on 2D directa:} aunque la versi\'on separable mitiga parcialmente el costo del blur ($0.127 \rightarrow 0.095$ ms), la pipeline a\'un se beneficiar\'ia de shared memory para que hilos vecinos reutilicen p\'ixeles y reduzcan accesos a memoria global.
 \end{enumerate}
+
+\textbf{Nota sobre Nsight Compute:} la herramienta \texttt{ncu} (Nsight Compute 2026.2.0) est\'a correctamente invocada en \texttt{profile.sh} con los flags \texttt{--set full --target-processes all}. Sin embargo, en ambos entornos de prueba el runtime de NCU requiere permisos de administrador para acceder a los GPU Performance Counters (\texttt{ERR\_NVGPUCTRPERM}). En Windows esto se resuelve ejecutando PowerShell como administrador; en Linux configurando \texttt{sudo ncu} o habilitando el registro de performance counters. Los flags y comandos est\'an documentados en \texttt{profile.sh} / \texttt{profile.bat} para ejecuci\'on en un entorno con los permisos adecuados.
 
 \subsection{Determinismo y Reproducibilidad}
 
@@ -490,5 +625,18 @@ Los resultados son plenamente reproducibles entre ambas m\'aquinas: la misma pip
   \item \textbf{Escalabilidad cross-platform:} la misma base de c\'odigo compila y ejecuta en Windows y Linux, en GPUs desde RTX 3060 hasta RTX 4090, produciendo resultados id\'enticos. Los scripts \texttt{build.sh}, \texttt{run\_all.sh} y \texttt{profile.sh} garantizan reproducibilidad completa en Linux.
   \item \textbf{Tile C++:} el toolchain Tile est\'a habilitado y funcional, aunque limitado por la API actual de CUDA 13.3 para stencils. La mezcla de Tile + SIMT en la misma unidad de traducci\'on es una soluci\'on pr\'actica y oficialmente soportada.
 \end{enumerate}
+
+%=============================================================================
+\section{Limitaciones y Trabajo Futuro}
+%=============================================================================
+
+\begin{itemize}
+  \item \textbf{Imagen no-divisible:} la instancia utilizada es $1402 \times 1122$, no exactamente $1537 \times 1021$ como sugiere el enunciado. Ambas cumplen el requisito de no ser m\'ultiplos de 16, 32 ni 64, validando igualmente el manejo de dimensiones no alineadas a tiles.
+  \item \textbf{API Tile C++:} la API \texttt{cuda\_tile.h} de CUDA 13.3 no soporta stencils con acceso a vecinos de forma pr\'actica. Cuando NVIDIA habilite esta funcionalidad, los 4 kernels de la pipeline podr\'an migrarse a \texttt{\_\_tile\_global\_\_} puro para una comparaci\'on m\'as estricta.
+  \item \textbf{cuTile Python --- padding:} el kernel \texttt{rgb\_to\_gray\_kernel} de cuTile Python utiliza \texttt{PaddingMode.ZERO} en los tiles de borde, mientras que las dem\'as versiones usan clamp. La diferencia es insignificante para el c\'alculo de luminancia (el padding solo afecta p\'ixeles fuera de la imagen, que no se almacenan en la salida).
+  \item \textbf{Convoluci\'on gaussiana separable:} se implement\'o solo para CUDA cl\'asico. Extenderla a CUDA Tile C++ y cuTile Python permitir\'ia una comparaci\'on completa del beneficio de $O(2k)$ vs $O(k^2)$ en todas las versiones.
+  \item \textbf{Reutilizaci\'on de buffers GPU:} los wrappers CUDA reservan y liberan memoria en cada iteraci\'on. Preasignar buffers una vez y reutilizarlos a lo largo de las 10 repeticiones reducir\'ia el overhead de \texttt{cudaMalloc}/\texttt{cudaFree}, beneficiando especialmente a im\'agenes peque\~nas.
+  \item \textbf{Shared memory:} los kernels actuales leen directamente de memoria global. Para Sobel y Gauss, cargar una regi\'on de p\'ixeles en shared memory por bloque reducir\'ia los accesos redundantes a memoria global (cada p\'ixel es le\'ido hasta $k^2$ veces por hilos vecinos).
+\end{itemize}
 
 \end{document}
