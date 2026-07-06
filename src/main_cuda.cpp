@@ -17,7 +17,8 @@ int processImageCuda(
     const char* output,
     int kernelSize,
     float scale,
-    const std::string& instance
+    const std::string& instance,
+    bool separable = false
 ) {
     int width, height, channels;
 
@@ -38,7 +39,9 @@ int processImageCuda(
     std::cout << "Realizando iteracion de calentamiento de GPU...\n";
     CudaStageTimings t_dummy;
     unsigned char* w_gray = cudaRgbToGray(img, width, height, channels, &t_dummy);
-    unsigned char* w_blur = cudaGaussianBlur(w_gray, width, height, kernelSize, sigma, &t_dummy);
+    unsigned char* w_blur = separable
+        ? cudaGaussianBlurSeparable(w_gray, width, height, kernelSize, sigma, &t_dummy)
+        : cudaGaussianBlur(w_gray, width, height, kernelSize, sigma, &t_dummy);
     unsigned char* w_sobel = cudaSobel(w_blur, width, height, &t_dummy);
     int w_outW, w_outH;
     unsigned char* w_resize = cudaBilinearResize(w_sobel, width, height, scale, &w_outW, &w_outH, &t_dummy);
@@ -59,9 +62,13 @@ int processImageCuda(
 
         unsigned char* gray = cudaRgbToGray(img, width, height, channels, &t_gray[i]);
 
-        unsigned char* blur = cudaGaussianBlur(
-            gray, width, height, kernelSize, sigma, &t_blur[i]
-        );
+        unsigned char* blur = separable
+            ? cudaGaussianBlurSeparable(
+                gray, width, height, kernelSize, sigma, &t_blur[i]
+              )
+            : cudaGaussianBlur(
+                gray, width, height, kernelSize, sigma, &t_blur[i]
+              );
 
         unsigned char* sobel = cudaSobel(blur, width, height, &t_sobel[i]);
 
@@ -156,7 +163,7 @@ int processImageCuda(
             double mpps = (pixels / 1.0e6) / (t_gray_k + t_blur_k + t_sob_k + t_res_k) * 1000.0;
 
             file << "CUDA_Clasico," << instance << "," << fs::path(input).filename().string() << ","
-                 << dims << "," << kernelSize << "," << scale << "," << "Dinamico_API," << (i + 1) << ","
+                 << dims << "," << kernelSize << "," << scale << "," << (separable ? "Dinamico_API_Separable" : "Dinamico_API") << "," << (i + 1) << ","
                  << t_gray_k << "," << t_blur_k << "," << t_sob_k << "," << t_res_k << ","
                  << t_gray_h << "," << t_gray_d << "," << t_blur_h << "," << t_blur_d << ","
                  << t_sob_h << "," << t_sob_d << "," << t_res_h << "," << t_res_d << ","
@@ -198,13 +205,14 @@ int processImageCuda(
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cout << "Uso: cuda --instance=<small|medium|large|no-divisible> --kernel-size=<size> [--scale=<factor>]\n";
+        std::cout << "Uso: cuda --instance=<small|medium|large|no-divisible> --kernel-size=<size> [--scale=<factor>] [--separable]\n";
         return 1;
     }
 
     std::string instance;
     int kernelSize = 0;
     float scale = 1.0f;
+    bool separable = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -214,6 +222,8 @@ int main(int argc, char** argv) {
             kernelSize = std::stoi(arg.substr(14));
         } else if (arg.rfind("--scale=", 0) == 0) {
             scale = std::stof(arg.substr(8));
+        } else if (arg == "--separable") {
+            separable = true;
         }
     }
 
@@ -235,7 +245,7 @@ int main(int argc, char** argv) {
         std::string fileInput = file.path().string();
         std::string fileOutput = (fs::path(dirOutput) / file.path().filename()).string();
 
-        processImageCuda(fileInput.c_str(), fileOutput.c_str(), kernelSize, scale, instance);
+        processImageCuda(fileInput.c_str(), fileOutput.c_str(), kernelSize, scale, instance, separable);
     }
 
     return 0;

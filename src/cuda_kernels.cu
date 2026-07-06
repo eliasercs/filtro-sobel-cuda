@@ -1,4 +1,5 @@
 #include "cuda_kernels.hpp"
+#include "image.hpp"
 
 #include <cuda_runtime.h>
 #include <cmath>
@@ -186,26 +187,62 @@ __global__ void bilinearResizeKernel(
     out[oy * outWidth + ox] = static_cast<unsigned char>(value);
 }
 
-static float* createFlatGaussKernel(int size, float sigma) {
-    int radius = size / 2;
-    float* kernel = new float[size * size];
-    const float PI = 3.14159265358979323846f;
+__global__ void separableGaussHorizontalKernel(
+    const unsigned char* in,
+    unsigned char* temp,
+    int width,
+    int height,
+    const float* kernel1d,
+    int kernelSize
+) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
 
+    int radius = kernelSize / 2;
     float sum = 0.0f;
-    for (int y = 0; y < size; y++) {
-        for (int x = 0; x < size; x++) {
-            float dx = static_cast<float>(x) - static_cast<float>(radius);
-            float dy = static_cast<float>(y) - static_cast<float>(radius);
-            kernel[y * size + x] = expf(
-                -(dx * dx + dy * dy) / (2.0f * sigma * sigma)
-            ) / (2.0f * PI * sigma * sigma);
-            sum += kernel[y * size + x];
-        }
+
+    for (int kx = -radius; kx <= radius; kx++) {
+        int xx = x + kx;
+        if (xx < 0) xx = 0;
+        if (xx >= width) xx = width - 1;
+        float w = kernel1d[kx + radius];
+        sum += static_cast<float>(in[y * width + xx]) * w;
     }
-    for (int i = 0; i < size * size; i++) {
-        kernel[i] /= sum;
+
+    if (sum < 0.0f) sum = 0.0f;
+    if (sum > 255.0f) sum = 255.0f;
+
+    temp[y * width + x] = static_cast<unsigned char>(sum);
+}
+
+__global__ void separableGaussVerticalKernel(
+    const unsigned char* temp,
+    unsigned char* out,
+    int width,
+    int height,
+    const float* kernel1d,
+    int kernelSize
+) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    int radius = kernelSize / 2;
+    float sum = 0.0f;
+
+    for (int ky = -radius; ky <= radius; ky++) {
+        int yy = y + ky;
+        if (yy < 0) yy = 0;
+        if (yy >= height) yy = height - 1;
+        float w = kernel1d[ky + radius];
+        sum += static_cast<float>(temp[yy * width + x]) * w;
     }
-    return kernel;
+
+    if (sum < 0.0f) sum = 0.0f;
+    if (sum > 255.0f) sum = 255.0f;
+
+    out[y * width + x] = static_cast<unsigned char>(sum);
 }
 
 unsigned char* cudaRgbToGray(
@@ -342,6 +379,97 @@ unsigned char* cudaGaussianBlur(
     if (timings) cudaEventRecord(stopDtoH);
 
     cudaFree(d_in);
+    cudaFree(d_out);
+    cudaFree(d_kernel);
+    delete[] h_kernel;
+
+    if (timings) {
+        cudaEventRecord(stopTotal);
+        cudaEventSynchronize(stopTotal);
+        cudaEventElapsedTime(&timings->hToD_ms, startHtoD, stopHtoD);
+        cudaEventElapsedTime(&timings->kernel_ms, startKernel, stopKernel);
+        cudaEventElapsedTime(&timings->dToH_ms, startDtoH, stopDtoH);
+        cudaEventElapsedTime(&timings->total_ms, startTotal, stopTotal);
+        cudaEventDestroy(startTotal);  cudaEventDestroy(stopTotal);
+        cudaEventDestroy(startHtoD);  cudaEventDestroy(stopHtoD);
+        cudaEventDestroy(startKernel); cudaEventDestroy(stopKernel);
+        cudaEventDestroy(startDtoH);  cudaEventDestroy(stopDtoH);
+    }
+
+    return h_out;
+}
+
+unsigned char* cudaGaussianBlurSeparable(
+    const unsigned char* h_in,
+    int width,
+    int height,
+    int kernelSize,
+    float sigma,
+    CudaStageTimings* timings
+) {
+    if (timings) {
+        timings->hToD_ms = 0.0f;
+        timings->kernel_ms = 0.0f;
+        timings->dToH_ms = 0.0f;
+        timings->total_ms = 0.0f;
+    }
+
+    float* h_kernel = createSeparableGaussKernel(kernelSize, sigma);
+
+    size_t bytes = static_cast<size_t>(width) * height;
+    size_t kbytes = static_cast<size_t>(kernelSize) * sizeof(float);
+
+    cudaEvent_t startTotal = nullptr, stopTotal = nullptr;
+    cudaEvent_t startHtoD = nullptr, stopHtoD = nullptr;
+    cudaEvent_t startKernel = nullptr, stopKernel = nullptr;
+    cudaEvent_t startDtoH = nullptr, stopDtoH = nullptr;
+
+    if (timings) {
+        cudaEventCreate(&startTotal);  cudaEventCreate(&stopTotal);
+        cudaEventCreate(&startHtoD);  cudaEventCreate(&stopHtoD);
+        cudaEventCreate(&startKernel); cudaEventCreate(&stopKernel);
+        cudaEventCreate(&startDtoH);  cudaEventCreate(&stopDtoH);
+        cudaEventRecord(startTotal);
+    }
+
+    unsigned char* d_in = nullptr;
+    unsigned char* d_temp = nullptr;
+    unsigned char* d_out = nullptr;
+    float* d_kernel = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_in, bytes));
+    CUDA_CHECK(cudaMalloc(&d_temp, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
+    CUDA_CHECK(cudaMalloc(&d_kernel, kbytes));
+
+    if (timings) cudaEventRecord(startHtoD);
+    CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_kernel, h_kernel, kbytes, cudaMemcpyHostToDevice));
+    if (timings) cudaEventRecord(stopHtoD);
+
+    dim3 grid_h, block_h;
+    getOptimalBlockGrid2D(separableGaussHorizontalKernel, width, height, grid_h, block_h);
+    dim3 grid_v, block_v;
+    getOptimalBlockGrid2D(separableGaussVerticalKernel, width, height, grid_v, block_v);
+
+    if (timings) cudaEventRecord(startKernel);
+    separableGaussHorizontalKernel<<<grid_h, block_h>>>(
+        d_in, d_temp, width, height, d_kernel, kernelSize
+    );
+    CUDA_CHECK(cudaGetLastError());
+    separableGaussVerticalKernel<<<grid_v, block_v>>>(
+        d_temp, d_out, width, height, d_kernel, kernelSize
+    );
+    CUDA_CHECK(cudaGetLastError());
+    if (timings) cudaEventRecord(stopKernel);
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    unsigned char* h_out = new unsigned char[bytes];
+    if (timings) cudaEventRecord(startDtoH);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
+    if (timings) cudaEventRecord(stopDtoH);
+
+    cudaFree(d_in);
+    cudaFree(d_temp);
     cudaFree(d_out);
     cudaFree(d_kernel);
     delete[] h_kernel;

@@ -36,6 +36,17 @@ for %%I in (%INSTANCES%) do (
 )
 
 echo.
+echo === CUDA clasico (gaussiano separable) ===
+for %%I in (%INSTANCES%) do (
+  for %%K in (%KERNELS%) do (
+    for %%S in (%SCALES%) do (
+      echo --- CUDA Separable ^&^& %%I k=%%K s=%%S ---
+      "%BUILD%\cuda.exe" --instance=%%I --kernel-size=%%K --scale=%%S --separable
+    )
+  )
+)
+
+echo.
 echo === CUDA Tile ===
 for %%I in (%INSTANCES%) do (
   for %%K in (%KERNELS%) do (

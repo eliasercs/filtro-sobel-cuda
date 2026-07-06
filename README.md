@@ -79,6 +79,7 @@ Todas las versiones comparten la misma CLI:
 | `--instance`    | `small` (512×512), `medium` (2048×2048), `large` (4096×4096), `no-divisible` (~1402×1122) |
 | `--kernel-size` | Tamaño del kernel gaussiano (impar ≥ 3)             |
 | `--scale`       | Factor de resize bilineal, e.g. `0.5` o `1.75`      |
+| `--separable`   | (solo `cuda.exe`) usar convolución separable 2-pases |
 
 ### Ejemplos
 
@@ -86,12 +87,14 @@ Todas las versiones comparten la misma CLI:
 # Windows
 build\secuencial.exe --instance=small   --kernel-size=5  --scale=0.5
 build\cuda.exe       --instance=medium  --kernel-size=9  --scale=1.75
+build\cuda.exe       --instance=medium  --kernel-size=5  --scale=0.5 --separable
 build\tile.exe       --instance=large   --kernel-size=5  --scale=1.0
 py -3.10 src\cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 
 # Linux
 build/secuencial --instance=small   --kernel-size=5  --scale=0.5
 build/cuda       --instance=medium  --kernel-size=9  --scale=1.75
+build/cuda       --instance=medium  --kernel-size=5  --scale=0.5 --separable
 build/tile       --instance=large   --kernel-size=5  --scale=1.0
 python3 src/cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 ```
@@ -108,7 +111,7 @@ run_all.bat
 ./run_all.sh
 ```
 
-Esto pobla `results/resultados.csv` con 640 filas (4 versiones × 4 × 2 × 2 × 10 reps)
+Esto pobla `results/resultados.csv` con 800 filas (4 versiones + gaussiano separable en CUDA = 5 configs × 4 inst × 2 k × 2 s × 10 reps)
 más la cabecera.
 
 ## 4. Profiling con Nsight

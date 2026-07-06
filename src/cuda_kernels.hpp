@@ -25,6 +25,15 @@ unsigned char* cudaGaussianBlur(
     CudaStageTimings* timings = nullptr
 );
 
+unsigned char* cudaGaussianBlurSeparable(
+    const unsigned char* h_in,
+    int width,
+    int height,
+    int kernelSize,
+    float sigma,
+    CudaStageTimings* timings = nullptr
+);
+
 unsigned char* cudaSobel(
     const unsigned char* h_in,
     int width,

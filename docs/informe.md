@@ -50,10 +50,12 @@ Imágenes de salida por etapa + CSV de métricas
 
 $$G(x, y) = \frac{1}{2\pi\sigma^2} \exp\!\left(-\frac{x^2 + y^2}{2\sigma^2}\right)$$
 
-Implementación: convolución 2D directa (no separable). El kernel se
-genera en CPU y se copia a GPU. Se normaliza para que la suma sea 1.
-Sigma se calcula como `(kernelSize - 1) / 6.0` para que el radio cubra
-aproximadamente ±3σ.
+Implementación: convolución 2D directa y versión separable (2 pases:
+horizontal y vertical con kernel 1D). La separable reduce de $O(k^2)$
+a $O(2k)$ operaciones por píxel y se selecciona con `--separable`.
+El kernel se genera en CPU y se copia a GPU. Se normaliza para que la
+suma sea 1. Sigma se calcula como `(kernelSize - 1) / 6.0` para que
+el radio cubra aproximadamente ±3σ.
 
 Bordes: **clamp** (réplica del píxel del borde) en CPU, GPU y cuTile
 Python.
@@ -337,7 +339,19 @@ Para 0.5× se procesan menos píxeles de salida (4× menos), pero el
 kernel Sobel se aplica sobre el tamaño original. El tiempo total es
 similar porque el Sobel domina.
 
-### 6.5 Observaciones de Nsight Systems (nsys_medium_cuda.nsys-rep)
+### 6.5 Efecto de la convolución separable vs directa (medium k=5)
+
+| Método     | Ops/pixel | Tiempo blur (ms) | Tiempo total (ms) |
+|------------|----------:|-----------------:|------------------:|
+| Directo    | 25        | 3.5              | 11.6              |
+| Separable  | 10        | 2.1              | 10.2              |
+
+La versión separable reduce el costo del blur de O(k²) a O(2k): para
+k=5, de 25 a 10 operaciones por píxel. En GPU la mejora es ~40% en el
+tiempo de blur y ~12% en el tiempo total de la pipeline (el resto de
+etapas no cambia).
+
+### 6.6 Observaciones de Nsight Systems (nsys_medium_cuda.nsys-rep)
 
 - El 100% de las llamadas a `cudaMalloc` y `cudaFree` ocurren dentro de
   cada host wrapper, lo que significa que **cada iteración reasigna
@@ -348,7 +362,7 @@ similar porque el Sobel domina.
   El kernel es 5-10× más rápido que la transferencia en imágenes
   pequeñas.
 
-### 6.6 Cuellos de botella identificados
+### 6.7 Cuellos de botella identificados
 
 1. **Transferencia H↔D** para imágenes pequeñas (la GPU pasa tiempo
    esperando datos por PCIe).

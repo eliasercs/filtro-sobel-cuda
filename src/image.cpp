@@ -120,6 +120,52 @@ void freeKernelGaussiano(
     delete[] kernel;
 }
 
+float* createFlatGaussKernel(
+    int size,
+    float sigma
+) {
+    int radius = size / 2;
+    float* kernel = new float[size * size];
+    const float PI = 3.14159265358979323846f;
+
+    float sum = 0.0f;
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            float dx = static_cast<float>(x - radius);
+            float dy = static_cast<float>(y - radius);
+            kernel[y * size + x] = expf(
+                -(dx * dx + dy * dy) / (2.0f * sigma * sigma)
+            ) / (2.0f * PI * sigma * sigma);
+            sum += kernel[y * size + x];
+        }
+    }
+    for (int i = 0; i < size * size; i++) {
+        kernel[i] /= sum;
+    }
+    return kernel;
+}
+
+float* createSeparableGaussKernel(
+    int size,
+    float sigma
+) {
+    int radius = size / 2;
+    float* kernel = new float[size];
+    const float PI = 3.14159265358979323846f;
+
+    float sum = 0.0f;
+    for (int i = 0; i < size; i++) {
+        float dx = static_cast<float>(i - radius);
+        kernel[i] = expf(-(dx * dx) / (2.0f * sigma * sigma))
+                   / (sqrtf(2.0f * PI) * sigma);
+        sum += kernel[i];
+    }
+    for (int i = 0; i < size; i++) {
+        kernel[i] /= sum;
+    }
+    return kernel;
+}
+
 unsigned char* applyGaussianBlur(
     unsigned char* img,
     int width,

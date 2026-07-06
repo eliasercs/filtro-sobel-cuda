@@ -34,6 +34,16 @@ void freeKernelGaussiano(
     int size
 );
 
+float* createFlatGaussKernel(
+    int size,
+    float sigma
+);
+
+float* createSeparableGaussKernel(
+    int size,
+    float sigma
+);
+
 unsigned char* applyGaussianBlur(
     unsigned char* img,
     int width,

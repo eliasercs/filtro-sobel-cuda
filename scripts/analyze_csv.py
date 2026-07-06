@@ -1,8 +1,10 @@
 import csv
 from collections import defaultdict
+from pathlib import Path
 
 data = []
-with open(r'C:\Users\ozaur\Documents\filtro-sobel-cuda\results\resultados.csv') as f:
+csv_path = Path(__file__).resolve().parent.parent / 'results' / 'resultados.csv'
+with open(csv_path) as f:
     reader = csv.reader(f)
     header = next(reader)
     for row in reader:

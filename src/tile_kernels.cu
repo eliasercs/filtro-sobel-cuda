@@ -1,4 +1,5 @@
 #include "tile_kernels.hpp"
+#include "image.hpp"
 
 #include "cuda_tile.h"
 #include <cuda_runtime.h>
@@ -194,28 +195,6 @@ __tile_global__ void tileIdentityKernel(
     int by = ct::bid().y;
     auto t = inView.load_masked(bx, by);
     outView.store(t, bx, by);
-}
-
-static float* createFlatGaussKernel(int size, float sigma) {
-    int radius = size / 2;
-    float* kernel = new float[size * size];
-    const float PI = 3.14159265358979323846f;
-
-    float sum = 0.0f;
-    for (int y = 0; y < size; y++) {
-        for (int x = 0; x < size; x++) {
-            float dx = static_cast<float>(x) - static_cast<float>(radius);
-            float dy = static_cast<float>(y) - static_cast<float>(radius);
-            kernel[y * size + x] = expf(
-                -(dx * dx + dy * dy) / (2.0f * sigma * sigma)
-            ) / (2.0f * PI * sigma * sigma);
-            sum += kernel[y * size + x];
-        }
-    }
-    for (int i = 0; i < size * size; i++) {
-        kernel[i] /= sum;
-    }
-    return kernel;
 }
 
 unsigned char* tileRgbToGray(
