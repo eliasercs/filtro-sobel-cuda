@@ -17,12 +17,16 @@ Dependencias Python:
 
 ```bash
 # Windows
-py -3.10 -m pip install Pillow numpy cuda.tile
+py -3.10 -m pip install Pillow numpy cuda.tile reportlab
 py -3.10 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
 
 # Linux
-python3 -m pip install Pillow numpy cuda.tile
+python3 -m pip install Pillow numpy cuda.tile reportlab
 python3 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
+```
+
+> **Nota:** `reportlab` solo es necesario si se desea regenerar el PDF del
+> informe desde `docs/informe.md` (`py -3.10 scripts/build_pdf.py`).
 ```
 
 ## 2. Compilación
@@ -45,8 +49,10 @@ build.bat
 make
 ```
 
-En Windows el Makefile usa `-ccbin` para localizar `cl.exe`. En Linux ese flag
-se omite automáticamente y `nvcc` usa `g++`.
+En Windows el Makefile y `build.bat` usan `-ccbin` para localizar `cl.exe`
+de MSVC. Si la instalación de Visual Studio/BuildTools usa una ruta
+distinta, actualizar la variable `CCBIN` en ambos archivos. En Linux ese
+flag se omite automáticamente y `nvcc` usa `g++`.
 
 Los tres métodos producen los mismos binarios en `build/`:
 
@@ -140,7 +146,9 @@ filtro-sobel-cuda/
 ├── run_all.sh                      # ejecutar las 4 versiones (Linux)
 ├── profile.bat                     # invocar Nsight (Windows)
 ├── profile.sh                      # invocar Nsight (Linux)
+├── release.bat                     # empaquetar .zip de entrega
 ├── Actividad_4_INFO1195_2026_Actualizado.pdf
+├── .gitignore
 ├── data/                           # imágenes de entrada
 │   ├── small/pistola.png           # 512×512
 │   ├── medium/ak-47.png            # 2048×2048
@@ -154,8 +162,16 @@ filtro-sobel-cuda/
 │   ├── tile_kernels.{hpp,cu}       # Tile C++ (-enable-tile) + SIMT
 │   ├── main_tile.cpp               # CLI + orquestador Tile
 │   ├── cutile_pipeline.py          # cuTile Python + orquestador
-│   ├── stb_image.h, stb_image_write.h
-├── build/                          # binarios (gitignored)
+│   ├── stb_image.h
+│   └── stb_image_write.h
+├── scripts/
+│   ├── build_pdf.py                # genera docs/informe.pdf desde .md
+│   ├── analyze_csv.py              # tablas resumen desde resultados.csv
+│   └── generate_test_images.py     # imágenes sintéticas si faltan
+├── docs/
+│   ├── informe.md                  # informe técnico (fuente)
+│   └── informe.pdf                 # informe en PDF (generado con build_pdf.py)
+├── build/                          # binarios compilados (gitignored)
 └── results/
     ├── resultados.csv              # CSV unificado de las 4 versiones
     ├── resultados_full.csv         # copia de respaldo
