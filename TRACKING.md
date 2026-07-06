@@ -78,7 +78,7 @@
 
 | # | Métrica | Estado | Detalle |
 |---|---------|--------|---------|
-| C.1 | Tiempo promedio total | ✅ | Calculado en `scripts/analyze_csv.py` y en `docs/informe.md` §5.3 |
+| C.1 | Tiempo promedio total | ✅ | Calculado desde `results/resultados.csv` y en `docs/main.tex` §5 |
 | C.2 | Desviación estándar del tiempo total | ✅ | En CSV (10 reps) y stdout del orquestador |
 | C.3 | Tiempo por etapa (Gray, Blur, Sobel, Resize) | ✅ | CSV: `T_Gray_kernel_ms`, `T_Blur_kernel_ms`, `T_Sobel_kernel_ms`, `T_Resize_kernel_ms` |
 | C.4 | Tiempo de kernels con CUDA Events | ✅ | `cudaEvent_t` por etapa en CUDA clásico y Tile; `torch.cuda.Event` en cuTile Python |
@@ -99,13 +99,13 @@
 |---|-----------|--------|---------|
 | D.1 | Código fuente (CPU + CUDA clásico + CUDA Tile + cuTile Python) | ✅ | `src/image.{hpp,cpp}`, `src/cuda_kernels.{hpp,cu}`, `src/tile_kernels.{hpp,cu}`, `src/cutile_pipeline.py` |
 | D.2 | README con instalación, compilación, ejecución y reproducción | ✅ | `README.md` con tabla de binarios, CLI, ejemplos, `run_all.bat`, `profile.bat` |
-| D.3 | Imágenes de entrada + scripts de generación/descarga | ✅ | `data/{small,medium,large,no-divisible}/*.png` + `scripts/generate_test_images.py` |
+| D.3 | Imágenes de entrada + scripts de generación/descarga | ✅ | `data/{small,medium,large,no-divisible}/*.png` |
 | D.4 | Imágenes de salida por etapa y versión | ✅ | `results/{secuencial,cuda,tile,cutile_python}/<instancia>/` con `_gray`, `_blur_k*`, `_sobel_k*`, `_resize_s*` |
 | D.5 | CSV con resultados | ✅ | `results/resultados.csv` (650+ filas, 23 cols) + `resultados_full.csv` (respaldo) |
 | D.6 | Perfiles de Nsight Compute / Nsight Systems | ⚠️ | `results/perf/nsys_medium_cuda.nsys-rep` (107 KB). NCU falla a escribir en este entorno (issue documentado en `informe.md` §8) |
 | D.7 | Registro de comandos utilizados | ✅ | `README.md` §3-4, `run_all.bat`, `profile.bat` registran todos los comandos |
-| D.8 | Informe en PDF | ✅ | `docs/informe.pdf` (21 KB) generado desde `docs/informe.md` con `scripts/build_pdf.py` (reportlab) |
-| D.9 | Repositorio/carpeta comprimida organizada | ✅ | `release.bat` genera `filtro-sobel-cuda-release.zip` con código + docs + data + results |
+| D.8 | Informe en PDF | ✅ | `docs/main.tex` compilado en Overleaf |
+| D.9 | Repositorio/carpeta comprimida organizada | ✅ | Código estructurado con `src/`, `data/`, `docs/`, `results/`, scripts `.bat`/`.sh` |
 
 ---
 

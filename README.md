@@ -11,22 +11,18 @@ desenfoque gaussiano, operador de Sobel y redimensionamiento bilineal.
   o `g++` en Linux.
 - **GPU NVIDIA** con compute capability ≥ 8.0 (probado en RTX 3060, sm_86).
 - **Python 3.10+** con `pip`.
-- **GNU Make** (opcional) o usar `build.bat` (Windows) / `build.sh` (Linux).
+- **GNU Make** (opcional) o usar `scripts\build.bat` (Windows) / `./scripts/build.sh` (Linux).
 
 Dependencias Python:
 
 ```bash
 # Windows
-py -3.10 -m pip install Pillow numpy cuda.tile reportlab
+py -3.10 -m pip install Pillow numpy cuda.tile
 py -3.10 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
 
 # Linux
-python3 -m pip install Pillow numpy cuda.tile reportlab
+python3 -m pip install Pillow numpy cuda.tile
 python3 -m pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu130
-```
-
-> **Nota:** `reportlab` solo es necesario si se desea regenerar el PDF del
-> informe desde `docs/informe.md` (`py -3.10 scripts/build_pdf.py`).
 ```
 
 ## 2. Compilación
@@ -34,13 +30,13 @@ python3 -m pip install --upgrade torch --index-url https://download.pytorch.org/
 ### Windows
 
 ```bat
-build.bat
+scripts\build.bat
 ```
 
 ### Linux
 
 ```bash
-./build.sh
+./scripts/build.sh
 ```
 
 ### Cross-platform (Make)
@@ -103,12 +99,12 @@ python3 src/cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0
 
 ```bat
 :: Windows
-run_all.bat
+scripts\run_all.bat
 ```
 
 ```bash
 # Linux
-./run_all.sh
+./scripts/run_all.sh
 ```
 
 Esto pobla `results/resultados.csv` con 800 filas (4 versiones + gaussiano separable en CUDA = 5 configs × 4 inst × 2 k × 2 s × 10 reps)
@@ -118,10 +114,10 @@ más la cabecera.
 
 ```bash
 # Windows
-profile.bat medium 5 0.5
+scripts\profile.bat medium 5 0.5
 
 # Linux
-./profile.sh medium 5 0.5
+./scripts/profile.sh medium 5 0.5
 ```
 
 Genera reportes en `results/perf/`:
@@ -143,14 +139,10 @@ filtro-sobel-cuda/
 ├── TRACKING.md                     # checklist contra la rúbrica
 ├── README.md                       # este archivo
 ├── Makefile                        # build cross-platform (make)
-├── build.bat                       # build en Windows
-├── build.sh                        # build en Linux
-├── run_all.bat                     # ejecutar las 4 versiones (Windows)
-├── run_all.sh                      # ejecutar las 4 versiones (Linux)
-├── profile.bat                     # invocar Nsight (Windows)
-├── profile.sh                      # invocar Nsight (Linux)
-├── release.bat                     # empaquetar .zip de entrega
-├── Actividad_4_INFO1195_2026_Actualizado.pdf
+├── scripts/
+│   ├── build.bat / build.sh        # compilar
+│   ├── run_all.bat / run_all.sh    # ejecutar batería completa
+│   └── profile.bat / profile.sh    # profiling Nsight
 ├── .gitignore
 ├── data/                           # imágenes de entrada
 │   ├── small/pistola.png           # 512×512
@@ -167,13 +159,8 @@ filtro-sobel-cuda/
 │   ├── cutile_pipeline.py          # cuTile Python + orquestador
 │   ├── stb_image.h
 │   └── stb_image_write.h
-├── scripts/
-│   ├── build_pdf.py                # genera docs/informe.pdf desde .md
-│   ├── analyze_csv.py              # tablas resumen desde resultados.csv
-│   └── generate_test_images.py     # imágenes sintéticas si faltan
 ├── docs/
-│   ├── informe.md                  # informe técnico (fuente)
-│   └── informe.pdf                 # informe en PDF (generado con build_pdf.py)
+│   └── main.tex                    # informe LaTeX para Overleaf
 ├── build/                          # binarios compilados (gitignored)
 └── results/
     ├── resultados.csv              # CSV unificado de las 4 versiones
@@ -217,7 +204,6 @@ Ver `TRACKING.md` sección G para más detalle.
 
 ## 8. Referencias
 
-- Enunciado: `Actividad_4_INFO1195_2026_Actualizado.pdf`
 - `stb_image.h`: https://github.com/nothings/stb
 - cuTile Python: https://github.com/NVIDIA/cutile-python
 - CUDA Tile C++: docs en `cuda_tile.h` (CUDA Toolkit)

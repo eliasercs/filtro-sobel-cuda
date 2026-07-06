@@ -5,10 +5,10 @@ set "INSTANCES=small medium large no-divisible"
 set "KERNELS=5 9"
 set "SCALES=0.5 1.75"
 
-set "ROOT=%~dp0"
-set "BUILD=%ROOT%build"
-set "SRC=%ROOT%src"
-set "RES=%ROOT%results"
+set "ROOT=%~dp0.."
+set "BUILD=%ROOT%\build"
+set "SRC=%ROOT%\src"
+set "RES=%ROOT%\results"
 
 if exist "%RES%\resultados.csv" del /q "%RES%\resultados.csv"
 

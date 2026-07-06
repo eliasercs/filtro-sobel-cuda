@@ -4,9 +4,9 @@ setlocal
 set "NSYS_EXE=C:\Program Files\NVIDIA Corporation\Nsight Systems 2026.1.3\target-windows-x64\nsys.exe"
 set "NCU_EXE=C:\Program Files\NVIDIA Corporation\Nsight Compute 2026.2.0\ncu.bat"
 
-set "ROOT=%~dp0"
-set "BUILD=%ROOT%build"
-set "PERF_DIR=%ROOT%results\perf"
+set "ROOT=%~dp0.."
+set "BUILD=%ROOT%\build"
+set "PERF_DIR=%ROOT%\results\perf"
 if not exist "%PERF_DIR%" mkdir "%PERF_DIR%"
 
 set "INSTANCE=medium"

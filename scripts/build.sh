@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BUILD_DIR="$(cd "$(dirname "$0")" && pwd)/build"
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)/src"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build"
+SRC_DIR="$ROOT/src"
 
 mkdir -p "$BUILD_DIR"
 

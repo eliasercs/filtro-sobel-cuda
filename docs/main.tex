@@ -62,17 +62,27 @@ Este informe presenta la implementaci\'on, an\'alisis y comparaci\'on de una pip
 
 \subsection{Problema y Motivaci\'on}
 
-El procesamiento digital de im\'agenes aplica la misma operaci\'on sobre millones de p\'ixeles independientes, lo que lo convierte en un dominio ideal para estudiar paralelismo en GPU. Esta actividad implementa una pipeline de cuatro etapas sobre cuatro versiones comparables, siguiendo el modelo de programaci\'on SIMT (Single Instruction, Multiple Threads) de CUDA.
+% El procesamiento digital de im\'agenes aplica la misma operaci\'on sobre millones de p\'ixeles independientes, lo que lo convierte en un dominio ideal para estudiar paralelismo en GPU. Esta actividad implementa una pipeline de cuatro etapas sobre cuatro versiones comparables, siguiendo el modelo de programaci\'on SIMT (Single Instruction, Multiple Threads) de CUDA.
+
+El procesamiento digital de im\'agenes es una tarea fundamental en aplicaciones como visión por computadora, robótica y sistemas de seguridad. Dónde, estas aplicaciones requieren ejecutar operaciones como filtro gaussiano, detección de bordes y redimensionamiento de imágenes de alta resolución, lo que implica un procesamiento de millones de píxeles mediante determinados cálculos. Al ejecutar estas operaciones de manera secuencial por CPU, el tiempo de procesamiento aumenta considerablemente a medida que crece el tamaño de la imagen o la complejidad de las operaciones, limitando su rendimiento en aplicaciones que requieren respuestas rápidas o procesamiento de grandes volúmenes de datos.
+
+Debido a que cada píxel se puede procesar de manera independiente, este tipo de problemas presenta un desafío que se puede resolver mediante el paralelismo de datos, lo que lo convierte en un caso de estudio adecuado para arquitecturas GPU. Sin embargo, existen diferentes versiones o modos para explotar dicho paralelismo, cada uno con sus características en cuanto al manejo de hilos, organización de la memoria, acceso a datos y complejidad de implementación.
+
+La motivación que da lugar a este trabajo radica en estudiar el impacto de estas versiones sobre el rendimiento de una pipeline completa de procesamiento de imágenes en planos RGB. Para ello, se implementan las etapas de conversión a escala de grises o luminancia, filtro gaussiano, operador de Sobel y redimensionamiento bilineal usando las versiones secuencial en CPU, CUDA clásico en C++, CUDA Tile en C++ y una versión parcial del procesamiento usando cuTile en Python. Finalmente, se comparan sus tiempos de ejecución, throughput, speed-up, uso de la memoria y comportamiento experimental, con la finalidad de analizar las ventajas y limitaciones de cada alternativa de implementación sobre GPU.
 
 \subsection{Pipeline de Procesamiento}
 
-La pipeline recibe una imagen RGB (PNG) y produce im\'agenes de salida por cada etapa intermedia:
+% La pipeline recibe una imagen RGB (PNG) y produce im\'agenes de salida por cada etapa intermedia:
+
+La pipeline implementada corresponde a un proceso de 4 etapas aplicadas sobre una imagen en el plano RGB como entrada. Cada etapa recibe como entrada el resultado de la etapa anterior y produce una nueva imagen que sirve de entrada para la siguiente operación. Este flujo separa responsabilidades y facilita la validación de cada algoritmo.
+
+Cabe destacar que la imagen de entrada se almacena en un formato RGB interleaved o intercalado, dónde cada píxel está compuesto por sus componentes rojo, verde y azul, y a partir de esta representación se ejecutan las siguientes etapas:
 
 \begin{enumerate}
-  \item \textbf{Conversi\'on RGB $\rightarrow$ luminancia:} $Y = 0.299R + 0.587G + 0.114B$ (est\'andar ITU-R BT.601).
-  \item \textbf{Filtro gaussiano:} convoluci\'on 2D con kernel $5 \times 5$ o $9 \times 9$, sigma autom\'atico $\sigma = (k-1)/6.0$. Se implementaron dos variantes: directa ($O(k^2)$) y separable ($O(2k)$).
-  \item \textbf{Operador de Sobel:} detecci\'on de bordes con m\'ascaras $3\times3$ para $G_x$ y $G_y$, magnitud $G = \min(\lfloor\sqrt{G_x^2+G_y^2}\rfloor, 255)$.
-  \item \textbf{Redimensionamiento bilineal:} interpolaci\'on con 4 p\'ixeles vecinos, factores $0.5\times$ y $1.75\times$.
+  \item \textbf{Conversión RGB a luminancia y escala de grises:} esta etapa transforma la imagen RGB en una imagen de un solo plano o canal de intensidad llamada escala de grises o luminancia. La cual calcula una combinación ponderada de los canales rojo, verde y azul usando los coeficientes del estándar ITU-R BT.601: $Y = 0.299R + 0.587G + 0.114B$. La finalidad de esta etapa es reducir la cantidad de información que se debe procesar en las siguientes etapas y eliminar la influencia del color, ya que tanto el filtro gaussiano como el de Sobel trabajan únicamente sobre la intensidad de la imagen.
+  \item \textbf{Filtro gaussiano:} dada una imagen en escala de grises como entrada, se aplica un filtro de desenfoque gaussiano cuyo objetivo busca reducir el ruido y suavizar pequeñas variaciones de intensidad. El filtro se implementa mediante convolución utilizando una configuración de 5x5 o 9x9, dependiendo del diseño experimental.
+  \item \textbf{Filtro de Sobel:} esta etapa realiza la detección de bordes, dónde cada píxel se analiza una vecindad de 3x3, calculando dos gradientes. La gradiente $G_{x}$ permite medir los cambios horizontales de intensidades, mientras que $G_{y}$ mide los cambios verticales. Luego, ambos gradientes se combinan para obtener la magnitud del borde, generando como salida una imagen donde los cambios bruscos de intensidad aparecen resaltados, mientras que las regiones homogéneas permanecen oscuras.
+  \item \textbf{Redimensionamiento bilineal:} esta etapa redimensiona una imagen de entrada mediante interpolación bilineal. Para cada píxel de salida se calcula la posición correspondiente dentro de la imagen original mediante coordenadas fraccionales, las cuales utilizan los cuatro vecinos más cercanos para estimar un nuevo valor de intensidad mediante una interpolación ponderada. La implementación de esta etapa busca trabajar con escalas de 0.5 y 1.75 para evaluar tanto la reducción como la ampliación de la imagen.
 \end{enumerate}
 
 \begin{figure}[H]
@@ -146,6 +156,36 @@ I_{\text{out}}(x,y)  &= \sum_{k_y=-r}^{r} I_{\text{temp}}(x,\, y+k_y) \cdot G_{1
 Complejidad: $O(2k)$ por p\'ixel. Para $k=5$, reduce de 25 a 10 operaciones por p\'ixel.
 
 En todas las versiones se usa \textbf{clamp} (r\'eplica del p\'ixel del borde) como estrategia de bordes, y el kernel se normaliza para que su suma sea exactamente 1.
+
+Con respecto a la selección de sigma, en esta implementación se calcula como:
+
+\[
+\sigma = \frac{k-1}{6},
+\]
+
+donde \(k\) corresponde al tamaño del kernel gaussiano. Esta expresión se basa en la propiedad de la distribución normal de que aproximadamente el \(99.7\%\) de sus valores se encuentran dentro del intervalo \(\pm 3\sigma\). Considerando que el radio del kernel es
+
+\[
+r = \frac{k-1}{2},
+\]
+
+se busca coincidir dicho radio con tres desviaciones estándar, es decir,
+
+\[
+3\sigma = r.
+\]
+
+Despejando \(\sigma\), se obtiene
+
+\[
+\sigma = \frac{r}{3}
+       = \frac{(k-1)/2}{3}
+       = \frac{k-1}{6}.
+\]
+
+Esta decisión de diseño, busca garantizar que el tamaño del kernel y el grado de suavizado sean consistentes entre sí, evitando ciertas configuraciones poco adecuadas que pueden afectar o degradar la calidad del filtro. Por otro lado, al establecer una relación entre el tamaño del kernel y el cálculo adecuado de sigma, los experimentos son más reproducibles y comparables haciendo que el comportamiento del filtro quede determinado únicamente por el tamaño del kernel seleccionado.
+
+El tamaño del kernel gaussiano debe ser un número impar para que exista un píxel central alrededor del cual se define la vecindad de la convolución. Este píxel actúa como referencia para aplicar simétricamente los coeficientes de la máscara gaussiana sobre los píxeles vecinos.
 
 \subsection{Operador de Sobel}
 
@@ -294,24 +334,24 @@ Compiler & nvcc + g++ & nvcc + MSVC 2022 \\
 \section{Descripci\'on T\'ecnica de las Versiones}
 %=============================================================================
 
-\subsection{CPU Secuencial (\texttt{src/image.cpp}, \texttt{src/main.cpp})}
+\subsection{CPU Secuencial (\texttt{image.cpp}, \texttt{main.cpp})}
 
-Implementaci\'on en C++17 sin SIMD expl\'icto. El kernel gaussiano se genera en formato 2D (\texttt{float**}) y se aplica con convoluci\'on directa. La medici\'on usa \texttt{std::chrono::high\_resolution\_clock} por etapa. Diez repeticiones con iteraci\'on de warmup. Las columnas de transferencia H$\leftrightarrow$D quedan en 0 (no hay GPU).
+Implementaci\'on en C++17 sin SIMD expl\'icto. El kernel gaussiano se genera en formato 2D (\texttt{float**}) y se aplica con convoluci\'on directa. La medici\'on usa \texttt{std::chrono::}\-\texttt{high\_resolution\_clock} por etapa. Diez repeticiones con iteraci\'on de warmup. Las columnas de transferencia H$\leftrightarrow$D quedan en 0 (no hay GPU).
 
-\subsection{CUDA C++ Cl\'asico (\texttt{src/cuda\_kernels.cu}, \texttt{src/main\_cuda.cpp})}
+\subsection{CUDA C++ Cl\'asico (\texttt{cuda\_kernels.cu}, \texttt{main\_cuda.cpp})}
 
-Cuatro kernels \texttt{\_\_global\_\_} con grilla 2D, borde clamp y acceso coalescente a memoria global. El tama\~no de bloque se elige din\'amicamente con la API de Occupancy de CUDA (\texttt{cudaOccupancyMaxPotentialBlockSize}). Cada etapa registra 4 mediciones con \texttt{cudaEvent\_t}: H$\rightarrow$D, kernel, D$\rightarrow$H y total. Se implementan dos variantes del blur:
+Cuatro kernels \texttt{\_\_global\_\_} con grilla 2D, borde clamp y acceso coalescente a memoria global. El tama\~no de bloque se elige din\'amicamente con la API de Occupancy de CUDA (\texttt{cudaOccupancy\-MaxPotential\-BlockSize}). Cada etapa registra 4 mediciones con \texttt{cudaEvent\_t}: H$\rightarrow$D, kernel, D$\rightarrow$H y total. Se implementan dos variantes del blur:
 
 \begin{itemize}
   \item \textbf{Directa 2D:} un kernel que aplica el kernel completo en una sola pasada ($O(k^2)$).
   \item \textbf{Separable 2-pases:} dos kernels consecutivos (horizontal + vertical) con un buffer intermedio en GPU. El kernel 1D se calcula en CPU con \texttt{createSeparableGaussKernel()} y se copia a GPU. Complejidad $O(2k)$. Se activa con el flag \texttt{--separable}.
 \end{itemize}
 
-\subsection{CUDA Tile C++ (\texttt{src/tile\_kernels.cu}, \texttt{src/main\_tile.cpp})}
+\subsection{CUDA Tile C++ (\texttt{tile\_kernels.cu}, \texttt{main\_tile.cpp})}
 
 Compilado con \texttt{-enable-tile -std=c++20}. Contiene un kernel \texttt{\_\_tile\_global\_\_} real (\texttt{tileIdentityKernel}, $16\times16$, load/store masked) que demuestra que el toolchain Tile est\'a habilitado. Los 4 kernels principales de la pipeline corren como SIMT en el mismo \texttt{.cu} con \texttt{BLOCK\_SIZE = 16} fijo. Esta decisi\'on se documenta en el informe porque la API \texttt{cuda\_tile.h} de CUDA 13.3 no soporta stencils con acceso a vecinos de forma pr\'actica; mezclar Tile + SIMT en la misma unidad de traducci\'on est\'a oficialmente soportado.
 
-\subsection{cuTile Python (\texttt{src/cutile\_pipeline.py})}
+\subsection{cuTile Python (\texttt{cutile\_pipeline.py})}
 
 La etapa de RGB $\rightarrow$ grayscale se implementa con \texttt{@ct.kernel} usando tiles 2D separados para los canales R, G y B. Los tiles se cargan con \texttt{PaddingMode.ZERO} en los bordes (a diferencia del clamp usado en las dem\'as versiones), pero esto no afecta la salida porque los p\'ixeles de padding no se almacenan. El resto de etapas (blur, Sobel, resize) usan operaciones gen\'ericas de PyTorch sobre GPU: \texttt{F.conv2d} con kernels calculados manualmente desde la f\'ormula matem\'atica, y \texttt{F.interpolate} con modo bilineal. No se utilizan filtros pre-implementados de PyTorch u OpenCV. El padding en blur y Sobel se configura con \texttt{mode='replicate'} (equivalente a clamp).
 
@@ -453,12 +493,12 @@ El i9-14900KF del servidor es consistentemente $\sim$1.7$\times$ m\'as r\'apido 
     ybar,
     bar width=12pt,
     width=0.92\textwidth,
-    height=6cm,
+    height=7cm,
     ylabel={Speed-up ($\times$)},
     symbolic x coords={Small, Medium, Large, No-div},
     xtick=data,
     nodes near coords,
-    nodes near coords align={vertical},
+    every node near coord/.append style={font=\tiny},
     ymin=0, ymax=110,
     legend style={at={(0.5,-0.18)}, anchor=north, legend columns=2},
     grid=major,
@@ -514,14 +554,39 @@ Cada ejecuci\'on de la pipeline genera cuatro im\'agenes PNG por etapa de proces
   \item \texttt{<imagen>\_resize\_s<S>.png} --- redimensionamiento bilineal con factor de escala $S$.
 \end{itemize}
 
-El proyecto incluye adem\'as los siguientes entregables auxiliares:
+\subsection{Muestra Visual de la Pipeline (servidor, medium, $k=5$, $s=0.5$)}
 
-\begin{itemize}
-  \item \texttt{scripts/generate\_test\_images.py} --- genera im\'agenes sint\'eticas para los 4 tama\~nos en caso de que falten las originales.
-  \item \texttt{scripts/analyze\_csv.py} --- produce tablas resumen de promedios y speed-ups desde el CSV de resultados.
-  \item \texttt{scripts/build\_pdf.py} --- convierte \texttt{docs/informe.md} a PDF usando la biblioteca \texttt{reportlab}.
-  \item \texttt{release.bat} --- empaqueta el repositorio completo en un archivo ZIP de entrega.
-\end{itemize}
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{ak-47_gray.png}
+  \caption{Original $\rightarrow$ Grayscale}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{ak-47_blur_k5.png}
+  \caption{Gaussian Blur ($5 \times 5$)}
+\end{subfigure}
+
+\vspace{0.3cm}
+
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{ak-47_sobel_k5.png}
+  \caption{Operador de Sobel}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{ak-47_resize_s0.500000.png}
+  \caption{Resize Bilineal ($0.5 \times$, $1024^2$)}
+\end{subfigure}
+
+\caption{Pipeline completa sobre \texttt{ak-47.png} ($2048 \times 2048$) ejecutada en el servidor (RTX 4090, CUDA cl\'asico). Cada etapa transforma progresivamente la imagen de entrada.}
+\label{fig:pipeline_output}
+\end{figure}
 
 \subsection{Formato del CSV de Resultados}
 
@@ -531,7 +596,7 @@ El archivo \texttt{results/resultados.csv} contiene 23 columnas con los datos cr
 \centering
 \caption{Columnas del CSV de resultados}
 \small
-\begin{tabular}{ll}
+\begin{tabular}{lp{0.55\textwidth}}
 \toprule
 \textbf{Columna} & \textbf{Significado} \\
 \midrule
