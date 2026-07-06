@@ -1,4 +1,5 @@
 results/
+results-server-universidad/
 src/*.exe
 src/*.o
 src/*.obj
