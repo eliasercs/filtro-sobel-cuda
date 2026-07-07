@@ -27,10 +27,10 @@ echo === Profiling con Nsight Compute ===
 "%NCU_EXE%" --set full --target-processes all --export "%PERF_DIR%\ncu_%INSTANCE%_cuda" "cuda.exe" --instance=%INSTANCE% --kernel-size=%KERNEL% --scale=%SCALE%
 if errorlevel 1 echo [ncu] fallo, continuando...
 
-if exist "%ROOT%results\resultados_full.csv" (
-    copy /Y "%ROOT%results\resultados_full.csv" "%ROOT%results\resultados_full_pre_profile.csv" >nul
+if exist "%ROOT%\results\resultados_full.csv" (
+    copy /Y "%ROOT%\results\resultados_full.csv" "%ROOT%\results\resultados_full_pre_profile.csv" >nul
 )
-if exist "%ROOT%results\resultados.csv" del /q "%ROOT%results\resultados.csv"
+if exist "%ROOT%\results\resultados.csv" del /q "%ROOT%\results\resultados.csv"
 
 cd /d "%ROOT%"
 echo.
