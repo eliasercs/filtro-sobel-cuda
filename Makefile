@@ -1,7 +1,7 @@
 CC      := nvcc
 CXX     := nvcc
-CXXFLAGS := -std=c++17 -arch=native
-TILE_CXXFLAGS := -std=c++20 -arch=native -enable-tile
+CXXFLAGS := -std=c++17 -arch=native -allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
+TILE_CXXFLAGS := -std=c++20 -arch=native -enable-tile -allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 
 SRC_DIR    := src
 BUILD_DIR  := build

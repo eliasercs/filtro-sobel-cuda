@@ -48,22 +48,31 @@ for %%I in (%INSTANCES%) do (
 
 echo.
 echo === CUDA Tile ===
-for %%I in (%INSTANCES%) do (
-  for %%K in (%KERNELS%) do (
-    for %%S in (%SCALES%) do (
-      echo --- Tile ^&^& %%I k=%%K s=%%S ---
-      "%BUILD%\tile.exe" --instance=%%I --kernel-size=%%K --scale=%%S
+if not exist "%BUILD%\tile.exe" (
+  echo [SKIP] No se encontro "%BUILD%\tile.exe" ^(CUDA Tile requiere CUDA 13.x+^). Se omite esta version.
+) else (
+  for %%I in (%INSTANCES%) do (
+    for %%K in (%KERNELS%) do (
+      for %%S in (%SCALES%) do (
+        echo --- Tile ^&^& %%I k=%%K s=%%S ---
+        "%BUILD%\tile.exe" --instance=%%I --kernel-size=%%K --scale=%%S
+      )
     )
   )
 )
 
 echo.
 echo === cuTile Python ===
-for %%I in (%INSTANCES%) do (
-  for %%K in (%KERNELS%) do (
-    for %%S in (%SCALES%) do (
-      echo --- cuTile ^&^& %%I k=%%K s=%%S ---
-      py -3.10 "%SRC%\cutile_pipeline.py" --instance=%%I --kernel-size=%%K --scale=%%S
+python -c "import torch, cuda.tile" >nul 2>nul
+if errorlevel 1 (
+  echo [SKIP] PyTorch o cuda.tile no estan instalados en Python. Se omite esta version.
+) else (
+  for %%I in (%INSTANCES%) do (
+    for %%K in (%KERNELS%) do (
+      for %%S in (%SCALES%) do (
+        echo --- cuTile ^&^& %%I k=%%K s=%%S ---
+        python "%SRC%\cutile_pipeline.py" --instance=%%I --kernel-size=%%K --scale=%%S
+      )
     )
   )
 )
