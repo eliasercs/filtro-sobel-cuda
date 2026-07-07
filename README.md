@@ -60,6 +60,10 @@ Los tres métodos producen los mismos binarios en `build/`:
 
 El flag `-arch=native` se usa para detectar la arquitectura de la GPU local.
 
+> Los scripts `.sh` y `.bat` detectan automáticamente la raíz del proyecto mediante
+> `dirname "$0"/..` (Linux) o `%~dp0..` (Windows). Pueden ejecutarse desde
+> cualquier carpeta.
+
 ## 3. Ejecución
 
 Todas las versiones comparten la misma CLI:
