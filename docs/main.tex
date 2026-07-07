@@ -49,7 +49,7 @@
 \thispagestyle{empty}
 
 \begin{abstract}
-Este informe presenta la implementaci\'on, an\'alisis y comparaci\'on de una pipeline completa de procesamiento de im\'agenes RGB sobre GPU, contrastando cuatro versiones: CPU secuencial, CUDA C++ cl\'asico, CUDA Tile C++ y cuTile Python. La pipeline aplica conversi\'on a luminancia, filtro gaussiano, operador de Sobel y redimensionamiento bilineal. Se implement\'o adem\'as una variante de convoluci\'on gaussiana separable (dos pases 1D) para comparar contra la versi\'on directa 2D. Los experimentos se ejecutaron en dos arquitecturas: una \textbf{NVIDIA RTX 4090} (servidor universitario) como entorno principal, y una \textbf{NVIDIA RTX 3060} (equipo local) como l\'inea base. Se reportaron speed-ups de hasta \textbf{167.5$\times$} en la RTX 4090 del servidor y \textbf{156.5$\times$} en la RTX 3060 local para im\'agenes grandes con kernel $9 \times 9$, validando que la GPU es la plataforma \'optima para este tipo de procesamiento. La versi\'on separable redujo el tiempo de kernel del blur en un 25\% adicional, alcanzando 44,082 MP/s de throughput en la 4090.
+Este informe presenta la implementaci\'on, an\'alisis y comparaci\'on de una pipeline completa de procesamiento de im\'agenes RGB sobre GPU, contrastando cuatro versiones: CPU secuencial, CUDA C++ cl\'asico, CUDA Tile C++ y cuTile Python. La pipeline aplica conversi\'on a luminancia, filtro gaussiano, operador de Sobel y redimensionamiento bilineal. Se implement\'o adem\'as una variante de convoluci\'on gaussiana separable (dos pases 1D) para comparar contra la versi\'on directa 2D. Los experimentos se ejecutaron en dos arquitecturas: una \textbf{NVIDIA RTX 4090} (servidor universitario) como entorno principal, y una \textbf{NVIDIA RTX 3060} (equipo local) como l\'inea base. Se realiz\'o profiling completo con Nsight Systems y Nsight Compute en ambas m\'aquinas, perfilando los 4 kernels de la pipeline. Se reportaron speed-ups de hasta \textbf{167.5$\times$} en la RTX 4090 del servidor y \textbf{156.5$\times$} en la RTX 3060 local para im\'agenes grandes con kernel $9 \times 9$, validando que la GPU es la plataforma \'optima para este tipo de procesamiento. La versi\'on separable redujo el tiempo de kernel del blur en un 25\% adicional, alcanzando 44,082 MP/s de throughput en la 4090.
 \end{abstract}
 
 \newpage
@@ -318,7 +318,7 @@ Compiler & nvcc + g++ & nvcc + MSVC 2022 \\
   \item \textbf{CUDA Events:} 8 \texttt{cudaEvent\_t} por etapa (H$\rightarrow$D, kernel, D$\rightarrow$H, total) para separar transferencia de c\'omputo en CUDA cl\'asico y Tile C++.
   \item \textbf{CPU:} \texttt{std::chrono::high\_resolution\_clock} por etapa.
   \item \textbf{cuTile Python:} \texttt{torch.cuda.Event} con \texttt{enable\_timing=True}.
-  \item \textbf{Profiling:} Nsight Systems 2026.1.3 para l\'inea de tiempo completa de transferencias y kernels.
+  \item \textbf{Profiling:} Nsight Systems 2026.1.3 para l\'inea de tiempo completa de transferencias y kernels. Nsight Compute 2026.2.0 (\texttt{--set full}) para m\'etricas por kernel: occupancy, memoria, instrucciones y ancho de banda (45 pases por kernel).
 \end{itemize}
 
 \subsection{Procedimiento}
@@ -676,7 +676,7 @@ Las observaciones clave del perfil de Nsight Systems son:
   \item \textbf{Convoluci\'on 2D directa:} aunque la versi\'on separable mitiga parcialmente el costo del blur ($0.127 \rightarrow 0.095$ ms), la pipeline a\'un se beneficiar\'ia de shared memory para que hilos vecinos reutilicen p\'ixeles y reduzcan accesos a memoria global.
 \end{enumerate}
 
-\textbf{Nota sobre Nsight Compute:} la herramienta \texttt{ncu} (Nsight Compute 2026.2.0) est\'a correctamente invocada en \texttt{profile.sh} con los flags \texttt{--set full --target-processes all}. Sin embargo, en ambos entornos de prueba el runtime de NCU requiere permisos de administrador para acceder a los GPU Performance Counters (\texttt{ERR\_NVGPUCTRPERM}). En Windows esto se resuelve ejecutando PowerShell como administrador; en Linux configurando \texttt{sudo ncu} o habilitando el registro de performance counters. Los flags y comandos est\'an documentados en \texttt{profile.sh} / \texttt{profile.bat} para ejecuci\'on en un entorno con los permisos adecuados.
+\textbf{Perfilado con Nsight Compute:} la herramienta \texttt{ncu} (Nsight Compute 2026.2.0) se ejecut\'o exitosamente en ambos entornos con los flags \texttt{--set full --target-processes all}. Se perfil\'o cada uno de los 4 kernels de la pipeline sobre \texttt{medium} ($k=5$, $s=0.5$), realizando 45 pases por kernel para garantizar precisi\'on estad\'istica en las m\'etricas. Los reportes generados (\texttt{ncu\_medium\_cuda.ncu-rep}) tienen un tama\~no de 87.2 MB (local, RTX 3060) y 84 MB (servidor, RTX 4090), conteniendo m\'etricas detalladas de occupancy, throughput de memoria, utilizaci\'on de registros y ancho de banda para cada kernel. Estos reportes pueden inspeccionarse con la GUI de Nsight Compute para un an\'alisis granular de cada etapa.
 
 \subsection{Determinismo y Reproducibilidad}
 
