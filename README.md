@@ -90,7 +90,7 @@ cd src
 ..\build\cuda.exe       --instance=medium  --kernel-size=9  --scale=1.75
 ..\build\cuda.exe       --instance=medium  --kernel-size=5  --scale=0.5 --separable
 ..\build\tile.exe       --instance=large   --kernel-size=5  --scale=1.0
-py -3.10 src\cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
+py -3.10 cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 
 # Linux (ejecutar desde src/)
 cd src
@@ -98,7 +98,7 @@ cd src
 ../build/cuda       --instance=medium  --kernel-size=9  --scale=1.75
 ../build/cuda       --instance=medium  --kernel-size=5  --scale=0.5 --separable
 ../build/tile       --instance=large   --kernel-size=5  --scale=1.0
-python3 src/cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
+python3 cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 ```
 
 ### Ejecución batch (4 versiones × 4 instancias × 2 kernels × 2 escalas)
