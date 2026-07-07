@@ -79,19 +79,25 @@ Todas las versiones comparten la misma CLI:
 
 ### Ejemplos
 
+> **Nota:** los binarios C++ usan rutas relativas `../data/` y `../results/`.
+> Ejecutar desde `src/` (o `build/`) para que las rutas resuelvan correctamente.
+> `run_all.bat`/`run_all.sh` y `profile.bat`/`profile.sh` ya lo hacen automáticamente.
+
 ```bash
-# Windows
-build\secuencial.exe --instance=small   --kernel-size=5  --scale=0.5
-build\cuda.exe       --instance=medium  --kernel-size=9  --scale=1.75
-build\cuda.exe       --instance=medium  --kernel-size=5  --scale=0.5 --separable
-build\tile.exe       --instance=large   --kernel-size=5  --scale=1.0
+# Windows (ejecutar desde src/)
+cd src
+..\build\secuencial.exe --instance=small   --kernel-size=5  --scale=0.5
+..\build\cuda.exe       --instance=medium  --kernel-size=9  --scale=1.75
+..\build\cuda.exe       --instance=medium  --kernel-size=5  --scale=0.5 --separable
+..\build\tile.exe       --instance=large   --kernel-size=5  --scale=1.0
 py -3.10 src\cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 
-# Linux
-build/secuencial --instance=small   --kernel-size=5  --scale=0.5
-build/cuda       --instance=medium  --kernel-size=9  --scale=1.75
-build/cuda       --instance=medium  --kernel-size=5  --scale=0.5 --separable
-build/tile       --instance=large   --kernel-size=5  --scale=1.0
+# Linux (ejecutar desde src/)
+cd src
+../build/secuencial --instance=small   --kernel-size=5  --scale=0.5
+../build/cuda       --instance=medium  --kernel-size=9  --scale=1.75
+../build/cuda       --instance=medium  --kernel-size=5  --scale=0.5 --separable
+../build/tile       --instance=large   --kernel-size=5  --scale=1.0
 python3 src/cutile_pipeline.py --instance=no-divisible --kernel-size=5 --scale=0.5
 ```
 

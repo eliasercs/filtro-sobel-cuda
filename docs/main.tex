@@ -676,7 +676,28 @@ Las observaciones clave del perfil de Nsight Systems son:
   \item \textbf{Convoluci\'on 2D directa:} aunque la versi\'on separable mitiga parcialmente el costo del blur ($0.127 \rightarrow 0.095$ ms), la pipeline a\'un se beneficiar\'ia de shared memory para que hilos vecinos reutilicen p\'ixeles y reduzcan accesos a memoria global.
 \end{enumerate}
 
-\textbf{Perfilado con Nsight Compute:} la herramienta \texttt{ncu} (Nsight Compute 2026.2.0) se ejecut\'o exitosamente en ambos entornos con los flags \texttt{--set full --target-processes all}. Se perfil\'o cada uno de los 4 kernels de la pipeline sobre \texttt{medium} ($k=5$, $s=0.5$), realizando 45 pases por kernel para garantizar precisi\'on estad\'istica en las m\'etricas. Los reportes generados (\texttt{ncu\_medium\_cuda.ncu-rep}) tienen un tama\~no de 87.2 MB (local, RTX 3060) y 84 MB (servidor, RTX 4090), conteniendo m\'etricas detalladas de occupancy, throughput de memoria, utilizaci\'on de registros y ancho de banda para cada kernel. Estos reportes pueden inspeccionarse con la GUI de Nsight Compute para un an\'alisis granular de cada etapa.
+\textbf{Perfilado con Nsight Compute:} la herramienta \texttt{ncu} (Nsight Compute 2026.2.0) se ejecut\'o exitosamente en ambos entornos con los flags \texttt{--set full --target-processes all}. Se perfil\'o cada uno de los 4 kernels de la pipeline sobre \texttt{medium} ($k=5$, $s=0.5$), realizando 45 pases por kernel para garantizar precisi\'on estad\'istica en las m\'etricas. Los reportes generados tienen un tama\~no de 84 MB (servidor, RTX 4090) y 87.2 MB (local, RTX 3060).
+
+\begin{table}[H]
+\centering
+\caption{Kernels perfilados con Nsight Compute (servidor RTX 4090, medium, $k=5$)}
+\label{tab:ncu}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Kernel} & \textbf{Duraci\'on (ms)} & \textbf{M\'etricas NCU} \\
+\midrule
+\texttt{rgbToGrayKernel}       & 0.0203 $\pm$ 0.0022 & Ocupaci\'on, memoria \\
+\texttt{gaussianBlurKernel}    & 0.0743 $\pm$ 0.0016 & Ocupaci\'on, registros, BW \\
+\texttt{sobelKernel}           & 0.0238 $\pm$ 0.0017 & Ocupaci\'on, accesos global \\
+\texttt{bilinearResizeKernel}  & 0.0115 $\pm$ 0.0017 & Ocupaci\'on, memoria \\
+\midrule
+\textbf{Total (4 kernels, 180 pases)} & \textbf{0.1299} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los reportes completos (\texttt{ncu\_medium\_cuda.ncu-rep}) pueden inspeccionarse con la GUI de Nsight Compute para un an\'alisis granular de cada etapa, incluyendo diagramas de ocupaci\'on de los SMs, patrones de acceso a memoria y cuellos de botella a nivel de instrucci\'on.
 
 \subsection{Determinismo y Reproducibilidad}
 
